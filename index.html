@@ -27,15 +27,15 @@ body{
 }
 header{
   background:var(--green); color:#fff;
-  padding:calc(env(safe-area-inset-top) + 14px) 18px 0;
+  padding:calc(env(safe-area-inset-top) + 8px) 16px 0;
   position:sticky; top:0; z-index:20;
 }
-.hd-title{font-size:19px; font-weight:800; letter-spacing:.14em; display:flex; align-items:baseline; gap:10px;}
-.hd-title small{font-size:11px; font-weight:500; letter-spacing:.08em; opacity:.75;}
-nav{display:flex; gap:4px; margin-top:10px;}
+.hd-title{font-size:15px; font-weight:800; letter-spacing:.14em; display:flex; align-items:baseline; gap:8px;}
+.hd-title small{font-size:9px; font-weight:500; letter-spacing:.08em; opacity:.7;}
+nav{display:flex; gap:4px; margin-top:4px;}
 nav button{
   flex:1; background:transparent; border:none; color:rgba(255,255,255,.65);
-  font:inherit; font-size:14px; font-weight:700; padding:10px 0 12px; cursor:pointer;
+  font:inherit; font-size:13px; font-weight:700; padding:6px 0 8px; cursor:pointer;
   border-bottom:3px solid transparent;
 }
 nav button.active{color:#fff; border-bottom-color:var(--gold);}
@@ -83,6 +83,24 @@ h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
 .chip.form{background:#EDEFEA; color:#55655E;}
 .chip.used{background:#E8E8E4; color:#8A948E;}
 
+/* 銘柄行内の証券口座別明細 */
+.t-sub{margin-top:4px; border-top:1px dashed #E4E9E4; padding-top:3px; display:flex; flex-direction:column; gap:2px;}
+.t-subrow{display:flex; align-items:center; gap:7px; font-variant-numeric:tabular-nums;}
+.t-subrow .chip.acct{font-size:9px; padding:0 6px;}
+.t-subbal{font-size:11.5px; font-weight:700; color:var(--ink);}
+.t-subbal small{font-size:9px; font-weight:600; color:var(--muted); margin-left:1px;}
+.t-substat{font-size:10px; font-weight:700;}
+.t-substat.ok{color:var(--green);}
+.t-substat.ng{color:var(--amber);}
+
+/* 期限1か月前の通知バナー */
+.notice{
+  display:flex; align-items:center; gap:8px;
+  background:#F7ECD9; color:#8A5B12; border:1px solid #E8D3AC;
+  border-radius:12px; padding:8px 12px; font-size:12.5px; font-weight:600; margin-bottom:10px;
+}
+.notice button{margin-left:auto; flex-shrink:0; background:none; border:none; font-size:17px; line-height:1; color:#8A5B12; cursor:pointer; padding:0 2px;}
+
 /* ------- カード（詳細・フォーム） ------- */
 .card{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
@@ -91,13 +109,18 @@ h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
 .field{margin-bottom:12px;}
 .field label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px;}
 input[type=text],input[type=number],input[type=date],input[type=url],input[type=password],select{
-  width:100%; font:inherit; font-size:16px; padding:9px 12px;
+  width:100%; min-width:0; font:inherit; font-size:16px; padding:9px 12px;
   border:1px solid #CBD6CE; border-radius:10px; background:#FDFEFD; color:var(--ink);
 }
+input[type=date]{-webkit-appearance:none; appearance:none; min-height:44px;}
 input:focus,select:focus{outline:2px solid var(--green); outline-offset:1px; border-color:var(--green);}
 input:disabled{background:#EEF1ED; color:#7B8781;}
 .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
 .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;}
+.grid2 > .field,.grid3 > .field{min-width:0;}
+/* 優待回ブロック：真ん中（有効期限）を広めにして「12か月後」の見切れを防ぐ */
+.kai-block .grid3{grid-template-columns:0.85fr 1.35fr 0.8fr; gap:6px;}
+.kai-block select{padding:9px 6px;}
 .seg{display:flex; border:1px solid #CBD6CE; border-radius:10px; overflow:hidden;}
 .seg button{flex:1; font:inherit; font-size:14px; font-weight:700; padding:9px 0; border:none; background:#FDFEFD; color:var(--muted); cursor:pointer;}
 .seg button.on{background:var(--green); color:#fff;}
@@ -146,11 +169,6 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 .qbtn:active{background:var(--green-soft);}
 .qbtn.zero{border-color:var(--red); color:var(--red);}
 .qbtn.zero:active{background:#F6E2DF;}
-.mapbtn{
-  display:inline-block; margin-top:10px; font-size:12.5px; font-weight:700;
-  color:#fff; text-decoration:none; padding:7px 14px; border-radius:99px;
-  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.4);
-}
 
 /* 集計サマリー */
 .summary{display:flex; background:var(--green); color:#fff; border-radius:var(--radius); padding:9px 4px; margin-bottom:10px;}
@@ -210,7 +228,21 @@ let sb = null;
 let masters = [];   // yutai_master
 let balances = [];  // yutai_balance
 let showUsed = false;
+let showUnrecvOnly = false; // 受取なしのみ表示（受取済の更新漏れ確認用）
+let noticeDismissed = false; // 期限1か月前通知を閉じたか（セッション内で保持）
 let view = { name:"list" };
+
+/* 残額詳細：未保存の変更があるかを判定して離脱時に確認する */
+function detailHasChanges(){
+  return [...app.querySelectorAll("input[data-orig]")]
+    .some(el => String(el.value) !== String(el.dataset.orig));
+}
+function confirmLeaveDetail(){
+  if(view.name === "detail" && detailHasChanges()){
+    return confirm("変更内容が保存されていません。\n保存せずに移動しますか？");
+  }
+  return true;
+}
 
 /* 一覧のソート・絞り込み状態（画面を行き来しても保持） */
 let listSort = "asc";      // 残額一覧：期限順（asc=近い順）
@@ -287,17 +319,31 @@ function computeExpiry(month, expMonths, base){
   if(t < new Date(y, month - 1, 1)) y -= 1;      // 直近の優待月（1日基準）
   return lastDayISO(y, (month - 1) + Number(expMonths)); // n か月後の月末
 }
-async function autoGenerate(){
+async function autoGenerate(target){
+  // target指定時（マスタ登録・更新直後）はそのマスタのみ処理。
+  // 各マスタの generated_until（どの優待月1日まで生成済みか）を見て、
+  // 未処理の優待月だけを対象にするため、意図的に削除した行は復活しない。
   const today = todayISO();
   const exists = new Set(balances.map(r => `${r.code}|${r.account}|${r.expiry}`));
   const rows = [];
-  for(const m of masters){
+  const genUpdates = [];
+  const list = target
+    ? masters.filter(m => m.code === target.code && m.account === target.account)
+    : masters;
+  for(const m of list){
     const kais = [[m.month1, m.expiry_months1, m.amount1]];
     if(Number(m.times_per_year) === 2) kais.push([m.month2, m.expiry_months2, m.amount2]);
+    let maxOcc = m.generated_until ?? null;
     for(const [mo, em, amt] of kais){
       if(!mo || !em) continue;
-      const expiry = computeExpiry(Number(mo), em);
-      if(expiry < today) continue;                          // 期限切れ分は作らない
+      const t = new Date();
+      let y = t.getFullYear();
+      if(t < new Date(y, Number(mo) - 1, 1)) y -= 1;          // 直近の優待月（1日基準）
+      const occ = `${y}-${String(mo).padStart(2,"0")}-01`;     // その優待月の1日
+      if(m.generated_until && occ <= m.generated_until) continue; // 生成済みの期はスキップ
+      if(!maxOcc || occ > maxOcc) maxOcc = occ;
+      const expiry = lastDayISO(y, (Number(mo) - 1) + Number(em));
+      if(expiry < today) continue;                             // 期限切れ分は作らない
       const key = `${m.code}|${m.account}|${expiry}`;
       if(exists.has(key)) continue;
       exists.add(key);
@@ -311,14 +357,24 @@ async function autoGenerate(){
         created_at:new Date().toISOString(), updated_at:new Date().toISOString()
       });
     }
+    if(maxOcc && maxOcc !== (m.generated_until ?? null)){
+      genUpdates.push({ code:m.code, account:m.account, generated_until:maxOcc });
+    }
   }
-  if(rows.length === 0) return;
-  const { error } = await sb.from("yutai_balance")
-    .upsert(rows, { onConflict:"code,account,expiry", ignoreDuplicates:true });
-  if(error){ console.error(error); return; }
-  const b = await sb.from("yutai_balance").select("*").order("expiry");
-  if(!b.error) balances = b.data;
-  toast(`優待を自動登録しました（${rows.length}件）`);
+  if(rows.length === 0 && genUpdates.length === 0) return;
+  if(rows.length > 0){
+    const { error } = await sb.from("yutai_balance")
+      .upsert(rows, { onConflict:"code,account,expiry", ignoreDuplicates:true });
+    if(error){ console.error(error); return; }
+  }
+  for(const u of genUpdates){
+    const { error } = await sb.from("yutai_master")
+      .update({ generated_until:u.generated_until })
+      .match({ code:u.code, account:u.account });
+    if(error) console.error(error);
+  }
+  await loadAll();
+  if(rows.length > 0) toast(`優待を自動登録しました（${rows.length}件）`);
 }
 
 /* ---------------- 画面：残高一覧 ---------------- */
@@ -342,7 +398,13 @@ function renderList(){
     groups = groups.filter(g => Number(g.expiry.slice(5,7)) === Number(listMonth));
   }
   let visible = groups.filter(g => showUsed || g.total > 0);
+  if(showUnrecvOnly) visible = visible.filter(g => g.recv < g.rows.length);  // 未受取が1件でもある銘柄のみ
   if(listSort === "desc") visible = [...visible].reverse();
+  else if(listSort === "codeAsc")  visible = [...visible].sort((a,b)=> a.code.localeCompare(b.code) || a.expiry.localeCompare(b.expiry));
+  else if(listSort === "codeDesc") visible = [...visible].sort((a,b)=> b.code.localeCompare(a.code) || a.expiry.localeCompare(b.expiry));
+
+  // 通知：期限まで1か月以内で残額がある銘柄（絞り込みに関係なく全体から判定）
+  const expiring = groupBalances().filter(g => g.total > 0 && daysLeft(g.expiry) >= 0 && daysLeft(g.expiry) <= 31);
 
   // ヘッダ集計（表示中のデータが対象。金額と枚数は分けて集計）
   const codeSet  = new Set(visible.map(g => g.code));
@@ -351,8 +413,14 @@ function renderList(){
   const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i+1}" ${String(listMonth)===String(i+1)?"selected":""}>${i+1}月が期限</option>`).join("");
 
   let html = `
+    <h2 style="margin-bottom:8px;">優待残高一覧</h2>
+    ${(!noticeDismissed && expiring.length > 0) ? `
+    <div class="notice">
+      <span>⏰ 期限まで1か月以内：${expiring.slice(0,3).map(g=>esc(g.name)).join("、")}${expiring.length > 3 ? ` 他${expiring.length-3}件` : ""}</span>
+      <button id="notice-x" aria-label="閉じる">×</button>
+    </div>` : ""}
     <div class="row-between" style="margin-bottom:10px;">
-      <h2 style="margin:0;">優待残高一覧</h2>
+      <label class="switch"><input type="checkbox" id="sw-unrecv" ${showUnrecvOnly?"checked":""}><span class="sw-track"></span>受取なしのみ</label>
       <label class="switch"><input type="checkbox" id="sw-used" ${showUsed?"checked":""}><span class="sw-track"></span>使用済も表示</label>
     </div>
     <div class="summary">
@@ -365,6 +433,8 @@ function renderList(){
       <select id="f-sort">
         <option value="asc" ${listSort==="asc"?"selected":""}>期限が近い順</option>
         <option value="desc" ${listSort==="desc"?"selected":""}>期限が遠い順</option>
+        <option value="codeAsc" ${listSort==="codeAsc"?"selected":""}>コード昇順</option>
+        <option value="codeDesc" ${listSort==="codeDesc"?"selected":""}>コード降順</option>
       </select>
     </div>`;
   if(visible.length === 0){
@@ -383,7 +453,14 @@ function renderList(){
             ${daysChip(g.expiry)}
             <span class="chip ${g.recv === g.rows.length ? "days-ok" : "days-warn"}">${g.recv}/${g.rows.length}受取済</span>
             ${used ? `<span class="chip used">使用済</span>` : ""}
-            ${g.rows.length > 1 ? `<span class="chip form">${g.rows.length}口座合算</span>` : acctChip(g.rows[0].account)}
+          </div>
+          <div class="t-sub">
+            ${[...g.rows].sort((a,b)=>a.account.localeCompare(b.account)).map(r => `
+            <div class="t-subrow">
+              <span class="chip acct ${esc(r.account)}">${esc(r.account)}</span>
+              <span class="t-subbal">${fmtNum(r.balance ?? 0)}<small>${unit(g.benefit_type)}</small></span>
+              <span class="t-substat ${r.received ? "ok" : "ng"}">${r.received ? "受取済" : "未受取"}</span>
+            </div>`).join("")}
           </div>
         </div>
         <div class="t-stub">
@@ -397,6 +474,9 @@ function renderList(){
   app.innerHTML = html;
   const sw = $("#sw-used");
   if(sw) sw.onchange = e => { showUsed = e.target.checked; renderList(); };
+  const nx = $("#notice-x");
+  if(nx) nx.onclick = e => { e.stopPropagation(); noticeDismissed = true; renderList(); };
+  $("#sw-unrecv").onchange = e => { showUnrecvOnly = e.target.checked; renderList(); };
   $("#f-month").onchange = e => { listMonth = e.target.value; renderList(); };
   $("#f-sort").onchange  = e => { listSort  = e.target.value; renderList(); };
   app.querySelectorAll(".ticket").forEach(el => el.onclick = () => renderDetail(el.dataset.key));
@@ -410,9 +490,6 @@ function renderDetail(key){
   if(rows.length === 0){ renderList(); return; }
   view = { name:"detail", key };
   const total = rows.reduce((s,r)=> s + Number(r.balance ?? 0), 0);
-  const mapQ = encodeURIComponent(
-    ((rows[0].name ?? "").replace(/ホールディングス|ホールディングズ|グループ|ＨＤ|HD/g,"").trim() || rows[0].name || code)
-  );
   let html = `<button class="back" id="back">‹ 一覧に戻る</button>
     <div class="d-head">
       <div class="sub" style="color:rgba(255,255,255,.7);">${esc(code)}　期限 ${fmtDate(expiry)}　${rows.length}件</div>
@@ -420,32 +497,27 @@ function renderDetail(key){
         <div class="name">${esc(rows[0].name)}</div>
         <div class="total">${fmtNum(total)}<small style="font-size:12px;color:rgba(255,255,255,.8);"> ${unit(rows[0].benefit_type)}</small></div>
       </div>
-      <a class="mapbtn" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">📍 使える店舗をマップで探す</a>
     </div>`;
   rows.forEach((r, i) => {
     html += `
     <div class="card" data-i="${i}">
       <div class="row-between" style="margin-bottom:8px;">
-        <div>${acctChip(r.account)}</div>
+        <div>${acctChip(r.account)} <span class="chip form">${esc(r.format)}</span> <span class="chip form">${esc(r.benefit_type)}</span></div>
         <label class="switch"><input type="checkbox" class="in-received" ${r.received ? "checked" : ""}><span class="sw-track"></span>受取済</label>
       </div>
-      <div class="field"><label>銘柄名</label><input type="text" class="in-name" value="${esc(r.name)}"></div>
-      <div class="grid3">
-        <div class="field"><label>形式</label><select class="in-format">${FORMATS.map(f=>`<option ${f===r.format?"selected":""}>${f}</option>`).join("")}</select></div>
-        <div class="field"><label>優待種類</label><select class="in-type">${TYPES.map(t=>`<option ${t===r.benefit_type?"selected":""}>${t}</option>`).join("")}</select></div>
-        <div class="field"><label>優待額</label><input type="number" inputmode="numeric" class="in-amount" value="${Number(r.amount ?? 0)}"></div>
-      </div>
-      <div class="field"><label>有効期限（キー項目：変更時は重複不可）</label><input type="date" class="in-expiry" value="${esc(r.expiry)}"></div>
-      <div class="field"><label>URL${r.url ? `　<a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--green);">サイトを開く ↗</a>` : ""}</label><input type="url" class="in-url" value="${esc(r.url)}" autocomplete="off"></div>
-      <div class="grid2">
-        <div class="field"><label>ID${r.login_id ? `　<button type="button" class="copybtn" data-copy="${esc(r.login_id)}">コピー</button>` : ""}</label><input type="text" class="in-id" value="${esc(r.login_id)}" autocomplete="off"></div>
-        <div class="field"><label>PASS${r.login_pass ? `　<button type="button" class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button>` : ""}</label><input type="text" class="in-pass" value="${esc(r.login_pass)}" autocomplete="off"></div>
-      </div>
-      <div class="field"><label>メモ(マスタ)</label><input type="text" class="in-memom" value="${esc(r.memo_master)}"></div>
+      <div class="kv"><span class="k">銘柄名</span><span class="v">${esc(r.name)}</span></div>
+      <div class="kv"><span class="k">優待額</span><span class="v">${fmtNum(r.amount)}${unit(r.benefit_type)}</span></div>
+      ${r.format === "電子" && r.url ? `<div class="kv"><span class="k">URL</span><span class="v"><a href="${esc(r.url)}" target="_blank" rel="noopener">サイトを開く ↗</a></span></div>` : ""}
+      ${r.format === "電子" && r.login_id ? `<div class="kv"><span class="k">ID</span><span class="v">${esc(r.login_id)}<button type="button" class="copybtn" data-copy="${esc(r.login_id)}">コピー</button></span></div>` : ""}
+      ${r.format === "電子" && r.login_pass ? `<div class="kv"><span class="k">PASS</span><span class="v"><span class="pw" data-pw="${esc(r.login_pass)}">••••••</span><button type="button" class="copybtn showpw">表示</button><button type="button" class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button></span></div>` : ""}
+      ${r.memo_master ? `<div class="kv"><span class="k">メモ(マスタ)</span><span class="v">${esc(r.memo_master)}</span></div>` : ""}
+      <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
+      <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
+      <div class="field" style="margin-top:12px;"><label>有効期限（変更時はキー重複不可）</label><input type="date" class="in-expiry" value="${esc(r.expiry)}" data-orig="${esc(r.expiry)}"></div>
       <div class="field">
         <label>残額（${unit(r.benefit_type)}）</label>
         <div class="balance-edit">
-          <input type="number" inputmode="numeric" class="in-balance" value="${Number(r.balance ?? 0)}">
+          <input type="text" inputmode="numeric" pattern="[0-9]*" class="in-balance" value="${Number(r.balance ?? 0)}" data-orig="${Number(r.balance ?? 0)}">
           ${r.benefit_type === "枚数"
             ? `<button type="button" class="qbtn minus" data-v="1">−1枚</button>`
             : `<button type="button" class="qbtn minus" data-v="500">−500</button>
@@ -453,9 +525,7 @@ function renderDetail(key){
           <button type="button" class="qbtn zero zero-btn">使い切り</button>
         </div>
       </div>
-      <div class="field"><label>メモ(トラン)</label><input type="text" class="in-memo" value="${esc(r.memo_tran)}"></div>
-      <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
-      <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
+      <div class="field"><label>メモ(トラン)</label><input type="text" class="in-memo" value="${esc(r.memo_tran)}" data-orig="${esc(r.memo_tran)}"></div>
       <div class="btn-row">
         <button class="btn primary save-btn">更新する</button>
         <button class="btn danger del-btn" style="flex:0 0 96px;">削除</button>
@@ -463,14 +533,28 @@ function renderDetail(key){
     </div>`;
   });
   app.innerHTML = html;
-  $("#back").onclick = renderList;
+  $("#back").onclick = () => { if(confirmLeaveDetail()) renderList(); };
   setFab(null);
 
   app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async e => {
     await navigator.clipboard.writeText(e.target.dataset.copy); toast("コピーしました");
   });
+  app.querySelectorAll(".showpw").forEach(b => b.onclick = e => {
+    const pw = e.target.parentElement.querySelector(".pw");
+    const on = pw.textContent !== "••••••";
+    pw.textContent = on ? "••••••" : pw.dataset.pw;
+    e.target.textContent = on ? "表示" : "隠す";
+  });
   app.querySelectorAll(".card").forEach(card => {
     const r = rows[Number(card.dataset.i)];
+    // 残額入力：フォーカス時はカーソルを右端に置く
+    const balInp = card.querySelector(".in-balance");
+    balInp.addEventListener("focus", () => {
+      requestAnimationFrame(() => {
+        const len = balInp.value.length;
+        try{ balInp.setSelectionRange(len, len); }catch(e){}
+      });
+    });
     // 受取済トグル（切り替えた時点で即保存）
     card.querySelector(".in-received").onchange = async e => {
       const checked = e.target.checked;
@@ -487,7 +571,7 @@ function renderDetail(key){
       inp.value = Math.max(0, Number(inp.value || 0) - Number(b.dataset.v));
     });
     card.querySelector(".zero-btn").onclick = () => { card.querySelector(".in-balance").value = 0; };
-    // 更新（マスタ由来項目も含めて全項目を保存。期限変更時はキー重複をチェック）
+    // 更新（有効期限・残額・メモ(トラン)を保存。期限変更時はキー重複をチェック）
     card.querySelector(".save-btn").onclick = async () => {
       const newExpiry = card.querySelector(".in-expiry").value;
       if(!newExpiry){ toast("有効期限を入力してください"); return; }
@@ -496,15 +580,7 @@ function renderDetail(key){
         toast(`期限${fmtDate(newExpiry)}の同じ優待が既に存在するため変更できません`); return;
       }
       const upd = {
-        name:card.querySelector(".in-name").value.trim() || r.name,
-        format:card.querySelector(".in-format").value,
-        benefit_type:card.querySelector(".in-type").value,
-        amount:Number(card.querySelector(".in-amount").value || 0),
         expiry:newExpiry,
-        url:card.querySelector(".in-url").value,
-        login_id:card.querySelector(".in-id").value,
-        login_pass:card.querySelector(".in-pass").value,
-        memo_master:card.querySelector(".in-memom").value,
         balance:Number(card.querySelector(".in-balance").value || 0),
         memo_tran:card.querySelector(".in-memo").value,
         updated_at:new Date().toISOString()
@@ -543,11 +619,11 @@ function renderBalanceAdd(){
     <div id="add-err"></div>
     <div class="field"><label>銘柄（マスタから選択）</label><select id="a-master">${opts}</select></div>
     <div class="field"><label>優待回</label><select id="a-kai"></select></div>
+    <div class="field"><label>有効期限</label><input type="date" id="a-expiry"></div>
     <div class="grid2">
-      <div class="field"><label>有効期限</label><input type="date" id="a-expiry"></div>
       <div class="field"><label>優待額</label><input type="number" inputmode="numeric" id="a-amount"></div>
+      <div class="field"><label>残額</label><input type="number" inputmode="numeric" id="a-balance"></div>
     </div>
-    <div class="field"><label>残額（初期値は優待額）</label><input type="number" inputmode="numeric" id="a-balance"></div>
     <div class="field"><label>メモ(トラン)</label><input type="text" id="a-memo"></div>
     <div class="field">
       <label class="switch"><input type="checkbox" id="a-received" checked><span class="sw-track"></span>受取済として登録する</label>
@@ -618,7 +694,19 @@ function renderMasterList(){
   });
 
   const acctOpts = ACCOUNTS.map(a=>`<option value="${a}" ${masterAccount===a?"selected":""}>${a}</option>`).join("");
+
+  // ヘッダ集計：今年1年間（1〜12月）に受け取れる合計（回1＋回2、金額と枚数は分けて集計）
+  const yearAmt = m => Number(m.amount1 || 0) + (Number(m.times_per_year) === 2 ? Number(m.amount2 || 0) : 0);
+  const mCodeSet = new Set(list.map(m => m.code));
+  const mYen = list.filter(m => m.benefit_type !== "枚数").reduce((s,m)=> s + yearAmt(m), 0);
+  const mMai = list.filter(m => m.benefit_type === "枚数").reduce((s,m)=> s + yearAmt(m), 0);
+
   let html = `<h2>銘柄マスタ</h2>
+    <div class="summary">
+      <div><span class="s-label">銘柄数</span><span class="s-val">${mCodeSet.size}<small> 銘柄</small></span></div>
+      <div><span class="s-label">年間金額（${new Date().getFullYear()}年）</span><span class="s-val">${fmtNum(mYen)}<small> 円</small></span></div>
+      <div><span class="s-label">年間枚数</span><span class="s-val">${fmtNum(mMai)}<small> 枚</small></span></div>
+    </div>
     <div class="toolbar">
       <input type="text" id="mf-q" placeholder="コード・銘柄名で検索" value="${esc(masterQuery)}">
     </div>
@@ -647,7 +735,7 @@ function renderMasterList(){
           <div class="t-meta">${acctChip(m.account)} <span class="chip form">${esc(m.format)}</span> <span class="chip form">${esc(m.benefit_type)}</span> <span class="chip days-ok">優待月 ${kai}</span></div>
         </div>
         <div class="t-stub">
-          <div class="t-balance" style="font-size:15px;">${fmtNum(m.amount1)}<small>${unit(m.benefit_type)}</small></div>
+          <div class="t-balance" style="font-size:15px;">${fmtNum(yearAmt(m))}<small>${unit(m.benefit_type)}/年</small></div>
           <div class="t-exp">年${esc(m.times_per_year)}回</div>
         </div>
       </div>`;
@@ -806,7 +894,7 @@ function renderMasterForm(m, isCopy = false){
     }
     if(error){ errBox.innerHTML = `<div class="err">保存に失敗しました：${esc(error.message)}</div>`; return; }
     await loadAll();
-    await autoGenerate();          // 登録直後にも自動作成を判定
+    await autoGenerate({ code, account });   // 保存した銘柄のみを対象に自動作成を判定
     toast(isEdit ? "マスタを更新しました" : "マスタを登録しました");
     renderMasterList();
   };
@@ -835,8 +923,8 @@ function setNav(active){
   $("#nav-list").classList.toggle("active", active === "list");
   $("#nav-master").classList.toggle("active", active === "master");
 }
-$("#nav-list").onclick = renderList;
-$("#nav-master").onclick = renderMasterList;
+$("#nav-list").onclick = () => { if(confirmLeaveDetail()) renderList(); };
+$("#nav-master").onclick = () => { if(confirmLeaveDetail()) renderMasterList(); };
 
 /* ---------------- 起動 ---------------- */
 async function boot(){
