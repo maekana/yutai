@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>優待手帳</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#174A3F">
+<style>
+:root{
+  --bg:#F1F4F0; --card:#FFFFFF; --ink:#1E2B26; --muted:#66756E; --line:#E1E7E1;
+  --green:#174A3F; --green-deep:#0F332C; --green-soft:#E4EEE9;
+  --gold:#C79A3B; --red:#B3372B; --amber:#C0781D;
+  --sbi:#0068B7; --rakuten:#BF0000; --monex:#E88F00;
+  --radius:14px;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{-webkit-text-size-adjust:100%;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;
+  font-size:15px; line-height:1.6;
+  padding-bottom:96px;
+}
+header{
+  background:var(--green); color:#fff;
+  padding:calc(env(safe-area-inset-top) + 14px) 18px 0;
+  position:sticky; top:0; z-index:20;
+}
+.hd-title{font-size:19px; font-weight:800; letter-spacing:.14em; display:flex; align-items:baseline; gap:10px;}
+.hd-title small{font-size:11px; font-weight:500; letter-spacing:.08em; opacity:.75;}
+nav{display:flex; gap:4px; margin-top:10px;}
+nav button{
+  flex:1; background:transparent; border:none; color:rgba(255,255,255,.65);
+  font:inherit; font-size:14px; font-weight:700; padding:10px 0 12px; cursor:pointer;
+  border-bottom:3px solid transparent;
+}
+nav button.active{color:#fff; border-bottom-color:var(--gold);}
+main{max-width:640px; margin:0 auto; padding:16px 14px;}
+h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
+.sub{font-size:12px; color:var(--muted);}
+.row-between{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+
+/* ------- チケット型カード（一覧のシグネチャ要素） ------- */
+.ticket{
+  background:var(--card); border-radius:var(--radius); margin-bottom:12px;
+  display:flex; position:relative; overflow:hidden; cursor:pointer;
+  box-shadow:0 1px 3px rgba(20,50,40,.08);
+  border:1px solid var(--line);
+}
+.ticket:active{transform:scale(.99);}
+.t-main{flex:1; padding:12px 14px; min-width:0;}
+.t-stub{
+  width:118px; flex-shrink:0; padding:12px 10px;
+  border-left:2px dashed #CBD6CE;
+  display:flex; flex-direction:column; justify-content:center; align-items:flex-end;
+  background:linear-gradient(180deg,#FBFCFA,#F3F6F2);
+  position:relative;
+}
+.ticket::before,.ticket::after{
+  content:""; position:absolute; width:16px; height:16px; border-radius:50%;
+  background:var(--bg); border:1px solid var(--line);
+  right:calc(118px - 8px); z-index:2;
+}
+.ticket::before{top:-9px;} .ticket::after{bottom:-9px;}
+.t-code{font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em;}
+.t-name{font-size:15px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.t-meta{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; align-items:center;}
+.t-balance{font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--green);}
+.t-balance small{font-size:11px; font-weight:600; color:var(--muted); margin-left:2px;}
+.t-balance.zero{color:#9AA8A1; text-decoration:line-through;}
+.t-exp{font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;}
+
+.chip{display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:99px; letter-spacing:.03em;}
+.chip.days-ok{background:var(--green-soft); color:var(--green);}
+.chip.days-warn{background:#F7ECD9; color:var(--amber);}
+.chip.days-danger{background:#F6E2DF; color:var(--red);}
+.chip.acct{color:#fff;}
+.chip.acct.SBI{background:var(--sbi);} .chip.acct.楽天{background:var(--rakuten);} .chip.acct.マネックス{background:var(--monex);}
+.chip.form{background:#EDEFEA; color:#55655E;}
+.chip.used{background:#E8E8E4; color:#8A948E;}
+
+/* ------- カード（詳細・フォーム） ------- */
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:16px 14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(20,50,40,.06);
+}
+.field{margin-bottom:12px;}
+.field label{display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px;}
+input[type=text],input[type=number],input[type=date],input[type=url],input[type=password],select{
+  width:100%; font:inherit; font-size:16px; padding:9px 12px;
+  border:1px solid #CBD6CE; border-radius:10px; background:#FDFEFD; color:var(--ink);
+}
+input:focus,select:focus{outline:2px solid var(--green); outline-offset:1px; border-color:var(--green);}
+input:disabled{background:#EEF1ED; color:#7B8781;}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;}
+.seg{display:flex; border:1px solid #CBD6CE; border-radius:10px; overflow:hidden;}
+.seg button{flex:1; font:inherit; font-size:14px; font-weight:700; padding:9px 0; border:none; background:#FDFEFD; color:var(--muted); cursor:pointer;}
+.seg button.on{background:var(--green); color:#fff;}
+.kai-block{border:1px dashed #CBD6CE; border-radius:12px; padding:12px; margin-bottom:12px; background:#FAFCFA;}
+.kai-block h4{font-size:13px; color:var(--green); margin-bottom:8px;}
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  font:inherit; font-size:15px; font-weight:800; letter-spacing:.05em;
+  padding:12px 18px; border-radius:12px; border:none; cursor:pointer; width:100%;
+}
+.btn.primary{background:var(--green); color:#fff;}
+.btn.primary:active{background:var(--green-deep);}
+.btn.ghost{background:transparent; color:var(--green); border:1.5px solid var(--green);}
+.btn.danger{background:transparent; color:var(--red); border:1.5px solid var(--red);}
+.btn.small{width:auto; padding:7px 14px; font-size:13px; border-radius:9px;}
+.btn:disabled{opacity:.45;}
+.btn-row{display:flex; gap:10px; margin-top:14px;}
+
+.back{background:none; border:none; font:inherit; color:var(--green); font-weight:700; font-size:14px; padding:0; cursor:pointer; margin-bottom:12px;}
+
+/* トグルスイッチ */
+.switch{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; user-select:none;}
+.switch input{display:none;}
+.sw-track{width:40px; height:24px; border-radius:99px; background:#CBD6CE; position:relative; transition:.15s;}
+.sw-track::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:.15s;}
+.switch input:checked + .sw-track{background:var(--green);}
+.switch input:checked + .sw-track::after{left:19px;}
+
+/* 詳細画面の明細 */
+.d-head{padding:14px; border-radius:var(--radius); background:var(--green); color:#fff; margin-bottom:14px;}
+.d-head .name{font-size:17px; font-weight:800;}
+.d-head .total{font-size:26px; font-weight:800; font-variant-numeric:tabular-nums; color:#F5D98B;}
+.kv{display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid #F0F3EF; font-size:13.5px;}
+.kv .k{color:var(--muted); flex-shrink:0; margin-right:12px;}
+.kv .v{text-align:right; word-break:break-all; font-variant-numeric:tabular-nums;}
+.kv .v a{color:var(--green); font-weight:700;}
+.copybtn{font:inherit; font-size:11px; font-weight:700; border:1px solid #CBD6CE; background:#fff; color:var(--green); border-radius:7px; padding:1px 8px; margin-left:6px; cursor:pointer;}
+.balance-edit{display:flex; gap:8px; align-items:center; margin-top:10px;}
+.balance-edit input{font-size:20px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums;}
+
+.fab{
+  position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom) + 20px); z-index:15;
+  background:var(--green); color:#fff; border:none; border-radius:99px;
+  font:inherit; font-size:15px; font-weight:800; letter-spacing:.05em;
+  padding:14px 22px; box-shadow:0 4px 14px rgba(15,51,44,.35); cursor:pointer;
+}
+.empty{text-align:center; color:var(--muted); padding:48px 10px; font-size:14px;}
+.err{background:#F6E2DF; color:var(--red); border-radius:10px; padding:10px 12px; font-size:13px; font-weight:600; margin-bottom:12px;}
+#toast{
+  position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 90px); transform:translateX(-50%) translateY(20px);
+  background:var(--green-deep); color:#fff; font-size:13px; font-weight:600;
+  padding:10px 18px; border-radius:99px; opacity:0; transition:.25s; z-index:50; pointer-events:none;
+  max-width:88vw; text-align:center;
+}
+#toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+@media (prefers-reduced-motion: reduce){ *{transition:none !important;} }
+</style>
+</head>
+<body>
+<header>
+  <div class="hd-title">優待手帳 <small>KABUNUSHI YUTAI LEDGER</small></div>
+  <nav>
+    <button id="nav-list" class="active">優待残高</button>
+    <button id="nav-master">銘柄マスタ</button>
+  </nav>
+</header>
+<main id="app"><div class="empty">読み込み中…</div></main>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ================= Supabase 設定（ここを書き換えてください） ================= */
+const SUPABASE_URL      = "https://czcuyizwgrrpyibnosmr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6Y3V5aXp3Z3JycHlpYm5vc21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNTA3NjcsImV4cCI6MjA5ODcyNjc2N30.2Y9X-xtPOHpU9-f2ydOLm3bPkr7iiV3_OX1lsHnfQwQ";
+/* ======================================================================== */
+
+const ACCOUNTS = ["SBI","楽天","マネックス"];
+const FORMATS  = ["紙","電子","アプリ"];
+const TYPES    = ["金額","枚数"];
+
+let sb = null;
+let masters = [];   // yutai_master
+let balances = [];  // yutai_balance
+let showUsed = false;
+let view = { name:"list" };
+
+const $ = s => document.querySelector(s);
+const app = $("#app");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._tm); t._tm = setTimeout(()=>t.classList.remove("show"), 2600);
+}
+function todayISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function lastDayISO(year, monthIndex){ // monthIndexは0始まり、翌月0日=月末
+  const d = new Date(year, monthIndex + 1, 0);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function fmtDate(iso){ return iso ? iso.replaceAll("-","/") : "－"; }
+function fmtDateTime(ts){
+  if(!ts) return "－";
+  const d = new Date(ts);
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+function unit(t){ return t === "枚数" ? "枚" : "円"; }
+function fmtNum(n){ return Number(n ?? 0).toLocaleString("ja-JP"); }
+function daysLeft(iso){
+  const t = new Date(todayISO()); const e = new Date(iso);
+  return Math.round((e - t) / 86400000);
+}
+function daysChip(iso){
+  const d = daysLeft(iso);
+  if(d < 0)   return `<span class="chip days-danger">期限切れ</span>`;
+  if(d <= 30) return `<span class="chip days-danger">あと${d}日</span>`;
+  if(d <= 90) return `<span class="chip days-warn">あと${d}日</span>`;
+  return `<span class="chip days-ok">あと${d}日</span>`;
+}
+function acctChip(a){ return `<span class="chip acct ${esc(a)}">${esc(a)}</span>`; }
+
+/* ---------------- データ取得 ---------------- */
+async function loadAll(){
+  const [m, b] = await Promise.all([
+    sb.from("yutai_master").select("*").order("code"),
+    sb.from("yutai_balance").select("*").order("expiry")
+  ]);
+  if(m.error) throw m.error;
+  if(b.error) throw b.error;
+  masters = m.data; balances = b.data;
+}
+
+/* ---------------- 優待の自動登録 ----------------
+   アプリ起動時に判定：優待月の1日を過ぎていて、
+   PK（コード×口座×有効期限）が未作成なら残額データを生成する */
+function computeExpiry(month, expMonths, base){
+  const t = base ?? new Date();
+  let y = t.getFullYear();
+  if(t < new Date(y, month - 1, 1)) y -= 1;      // 直近の優待月（1日基準）
+  return lastDayISO(y, (month - 1) + Number(expMonths)); // n か月後の月末
+}
+async function autoGenerate(){
+  const today = todayISO();
+  const exists = new Set(balances.map(r => `${r.code}|${r.account}|${r.expiry}`));
+  const rows = [];
+  for(const m of masters){
+    const kais = [[m.month1, m.expiry_months1, m.amount1]];
+    if(Number(m.times_per_year) === 2) kais.push([m.month2, m.expiry_months2, m.amount2]);
+    for(const [mo, em, amt] of kais){
+      if(!mo || !em) continue;
+      const expiry = computeExpiry(Number(mo), em);
+      if(expiry < today) continue;                          // 期限切れ分は作らない
+      const key = `${m.code}|${m.account}|${expiry}`;
+      if(exists.has(key)) continue;
+      exists.add(key);
+      rows.push({
+        code:m.code, account:m.account, expiry,
+        name:m.name, format:m.format, benefit_type:m.benefit_type,
+        amount:amt ?? 0, balance:amt ?? 0,
+        url:m.url, login_id:m.login_id, login_pass:m.login_pass,
+        memo_master:m.memo, memo_tran:"",
+        created_at:new Date().toISOString(), updated_at:new Date().toISOString()
+      });
+    }
+  }
+  if(rows.length === 0) return;
+  const { error } = await sb.from("yutai_balance")
+    .upsert(rows, { onConflict:"code,account,expiry", ignoreDuplicates:true });
+  if(error){ console.error(error); return; }
+  const b = await sb.from("yutai_balance").select("*").order("expiry");
+  if(!b.error) balances = b.data;
+  toast(`優待を自動登録しました（${rows.length}件）`);
+}
+
+/* ---------------- 画面：残高一覧 ---------------- */
+function groupBalances(){
+  const map = new Map();
+  for(const r of balances){
+    const key = `${r.code}__${r.expiry}`;
+    if(!map.has(key)) map.set(key, { key, code:r.code, expiry:r.expiry, name:r.name, benefit_type:r.benefit_type, total:0, rows:[] });
+    const g = map.get(key);
+    g.total += Number(r.balance ?? 0);
+    g.rows.push(r);
+  }
+  return [...map.values()].sort((a,b)=> a.expiry === b.expiry ? a.code.localeCompare(b.code) : a.expiry.localeCompare(b.expiry));
+}
+function renderList(){
+  view = { name:"list" };
+  setNav("list");
+  const groups = groupBalances();
+  const visible = groups.filter(g => showUsed || g.total > 0);
+  let html = `
+    <div class="row-between" style="margin-bottom:12px;">
+      <h2 style="margin:0;">優待残高一覧</h2>
+      <label class="switch"><input type="checkbox" id="sw-used" ${showUsed?"checked":""}><span class="sw-track"></span>使用済も表示</label>
+    </div>`;
+  if(visible.length === 0){
+    html += `<div class="empty">表示できる優待がありません。<br>まず「銘柄マスタ」から銘柄を登録すると、<br>優待月に残額データが自動作成されます。</div>`;
+  }else{
+    for(const g of visible){
+      const used = g.total <= 0;
+      html += `
+      <div class="ticket" data-key="${esc(g.key)}">
+        <div class="t-main">
+          <div class="t-code">${esc(g.code)}</div>
+          <div class="t-name">${esc(g.name)}</div>
+          <div class="t-meta">
+            ${daysChip(g.expiry)}
+            ${used ? `<span class="chip used">使用済</span>` : ""}
+            ${g.rows.length > 1 ? `<span class="chip form">${g.rows.length}口座合算</span>` : acctChip(g.rows[0].account)}
+          </div>
+        </div>
+        <div class="t-stub">
+          <div class="t-balance ${used?"zero":""}">${fmtNum(g.total)}<small>${unit(g.benefit_type)}</small></div>
+          <div class="t-exp">期限 ${fmtDate(g.expiry)}</div>
+        </div>
+      </div>`;
+    }
+  }
+  html += `<div style="height:60px;"></div>`;
+  app.innerHTML = html;
+  const sw = $("#sw-used");
+  if(sw) sw.onchange = e => { showUsed = e.target.checked; renderList(); };
+  app.querySelectorAll(".ticket").forEach(el => el.onclick = () => renderDetail(el.dataset.key));
+  setFab("＋ 残額データを追加", renderBalanceAdd);
+}
+
+/* ---------------- 画面：残額詳細 ---------------- */
+function renderDetail(key){
+  const [code, expiry] = key.split("__");
+  const rows = balances.filter(r => r.code === code && r.expiry === expiry);
+  if(rows.length === 0){ renderList(); return; }
+  view = { name:"detail", key };
+  const total = rows.reduce((s,r)=> s + Number(r.balance ?? 0), 0);
+  let html = `<button class="back" id="back">‹ 一覧に戻る</button>
+    <div class="d-head">
+      <div class="sub" style="color:rgba(255,255,255,.7);">${esc(code)}　期限 ${fmtDate(expiry)}　${rows.length}件</div>
+      <div class="row-between">
+        <div class="name">${esc(rows[0].name)}</div>
+        <div class="total">${fmtNum(total)}<small style="font-size:12px;color:rgba(255,255,255,.8);"> ${unit(rows[0].benefit_type)}</small></div>
+      </div>
+    </div>`;
+  rows.forEach((r, i) => {
+    const digital = r.format === "電子";
+    html += `
+    <div class="card" data-i="${i}">
+      <div class="row-between" style="margin-bottom:8px;">
+        <div>${acctChip(r.account)} <span class="chip form">${esc(r.format)}</span> <span class="chip form">${esc(r.benefit_type)}</span></div>
+        <div class="sub">優待額 ${fmtNum(r.amount)}${unit(r.benefit_type)}</div>
+      </div>
+      <div class="kv"><span class="k">有効期限</span><span class="v">${fmtDate(r.expiry)}</span></div>
+      ${digital && r.url ? `<div class="kv"><span class="k">URL</span><span class="v"><a href="${esc(r.url)}" target="_blank" rel="noopener">サイトを開く ↗</a></span></div>` : ""}
+      ${digital && r.login_id ? `<div class="kv"><span class="k">ID</span><span class="v">${esc(r.login_id)}<button class="copybtn" data-copy="${esc(r.login_id)}">コピー</button></span></div>` : ""}
+      ${digital && r.login_pass ? `<div class="kv"><span class="k">PASS</span><span class="v"><span class="pw" data-pw="${esc(r.login_pass)}">••••••</span><button class="copybtn showpw">表示</button><button class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button></span></div>` : ""}
+      ${r.memo_master ? `<div class="kv"><span class="k">メモ(マスタ)</span><span class="v">${esc(r.memo_master)}</span></div>` : ""}
+      <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
+      <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
+      <div class="field" style="margin-top:12px;">
+        <label>残額（${unit(r.benefit_type)}）</label>
+        <div class="balance-edit">
+          <input type="number" inputmode="numeric" class="in-balance" value="${Number(r.balance ?? 0)}">
+          <button class="btn ghost small zero-btn">使い切り</button>
+        </div>
+      </div>
+      <div class="field"><label>メモ(トラン)</label><input type="text" class="in-memo" value="${esc(r.memo_tran)}"></div>
+      <div class="btn-row">
+        <button class="btn primary save-btn">更新する</button>
+        <button class="btn danger del-btn" style="flex:0 0 96px;">削除</button>
+      </div>
+    </div>`;
+  });
+  app.innerHTML = html;
+  $("#back").onclick = renderList;
+  setFab(null);
+
+  app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async e => {
+    await navigator.clipboard.writeText(e.target.dataset.copy); toast("コピーしました");
+  });
+  app.querySelectorAll(".showpw").forEach(b => b.onclick = e => {
+    const pw = e.target.parentElement.querySelector(".pw");
+    const on = pw.textContent !== "••••••";
+    pw.textContent = on ? "••••••" : pw.dataset.pw;
+    e.target.textContent = on ? "表示" : "隠す";
+  });
+  app.querySelectorAll(".card").forEach(card => {
+    const r = rows[Number(card.dataset.i)];
+    card.querySelector(".zero-btn").onclick = () => { card.querySelector(".in-balance").value = 0; };
+    card.querySelector(".save-btn").onclick = async () => {
+      const balance = Number(card.querySelector(".in-balance").value || 0);
+      const memo = card.querySelector(".in-memo").value;
+      const { error } = await sb.from("yutai_balance")
+        .update({ balance, memo_tran:memo, updated_at:new Date().toISOString() })
+        .match({ code:r.code, account:r.account, expiry:r.expiry });
+      if(error){ toast("更新に失敗しました"); console.error(error); return; }
+      await loadAll(); toast("更新しました"); renderDetail(key);
+    };
+    card.querySelector(".del-btn").onclick = async () => {
+      if(!confirm(`${r.name}（${r.account}）の残額データを削除します。よろしいですか？`)) return;
+      const { error } = await sb.from("yutai_balance").delete()
+        .match({ code:r.code, account:r.account, expiry:r.expiry });
+      if(error){ toast("削除に失敗しました"); console.error(error); return; }
+      await loadAll(); toast("削除しました");
+      const left = balances.filter(x => x.code === code && x.expiry === expiry);
+      left.length ? renderDetail(key) : renderList();
+    };
+  });
+}
+
+/* ---------------- 画面：残額データの追加 ---------------- */
+function renderBalanceAdd(){
+  view = { name:"balanceAdd" };
+  setFab(null);
+  if(masters.length === 0){
+    app.innerHTML = `<button class="back" id="back">‹ 一覧に戻る</button><div class="empty">銘柄マスタが未登録です。<br>先に「銘柄マスタ」から銘柄を登録してください。</div>`;
+    $("#back").onclick = renderList; return;
+  }
+  const opts = masters.map((m,i)=>`<option value="${i}">${esc(m.code)}　${esc(m.name)}（${esc(m.account)}）</option>`).join("");
+  app.innerHTML = `
+  <button class="back" id="back">‹ 一覧に戻る</button>
+  <h2>残額データの追加</h2>
+  <div class="card">
+    <div id="add-err"></div>
+    <div class="field"><label>銘柄（マスタから選択）</label><select id="a-master">${opts}</select></div>
+    <div class="field"><label>優待回</label><select id="a-kai"></select></div>
+    <div class="grid2">
+      <div class="field"><label>有効期限</label><input type="date" id="a-expiry"></div>
+      <div class="field"><label>優待額</label><input type="number" inputmode="numeric" id="a-amount"></div>
+    </div>
+    <div class="field"><label>残額（初期値は優待額）</label><input type="number" inputmode="numeric" id="a-balance"></div>
+    <div class="field"><label>メモ(トラン)</label><input type="text" id="a-memo"></div>
+    <button class="btn primary" id="a-save">登録する</button>
+  </div>`;
+  $("#back").onclick = renderList;
+
+  function syncKai(){
+    const m = masters[Number($("#a-master").value)];
+    const kais = [[1, m.month1, m.expiry_months1, m.amount1]];
+    if(Number(m.times_per_year) === 2) kais.push([2, m.month2, m.expiry_months2, m.amount2]);
+    $("#a-kai").innerHTML = kais.map(([n,mo,em,amt]) =>
+      `<option value="${n}">回${n}：${mo ?? "?"}月・期限${em ?? "?"}か月後・${fmtNum(amt)}${unit(m.benefit_type)}</option>`).join("");
+    syncFields();
+  }
+  function syncFields(){
+    const m = masters[Number($("#a-master").value)];
+    const n = Number($("#a-kai").value);
+    const mo  = n === 2 ? m.month2 : m.month1;
+    const em  = n === 2 ? m.expiry_months2 : m.expiry_months1;
+    const amt = n === 2 ? m.amount2 : m.amount1;
+    if(mo && em) $("#a-expiry").value = computeExpiry(Number(mo), em);
+    $("#a-amount").value = amt ?? 0;
+    $("#a-balance").value = amt ?? 0;
+  }
+  $("#a-master").onchange = syncKai;
+  $("#a-kai").onchange = syncFields;
+  syncKai();
+
+  $("#a-save").onclick = async () => {
+    const m = masters[Number($("#a-master").value)];
+    const expiry = $("#a-expiry").value;
+    if(!expiry){ $("#add-err").innerHTML = `<div class="err">有効期限を入力してください。</div>`; return; }
+    if(balances.some(r => r.code === m.code && r.account === m.account && r.expiry === expiry)){
+      $("#add-err").innerHTML = `<div class="err">同じキー（${esc(m.code)}／${esc(m.account)}／${fmtDate(expiry)}）の残額データが既に存在するため登録できません。</div>`;
+      return;
+    }
+    const row = {
+      code:m.code, account:m.account, expiry,
+      name:m.name, format:m.format, benefit_type:m.benefit_type,
+      amount:Number($("#a-amount").value || 0), balance:Number($("#a-balance").value || 0),
+      url:m.url, login_id:m.login_id, login_pass:m.login_pass,
+      memo_master:m.memo, memo_tran:$("#a-memo").value,
+      created_at:new Date().toISOString(), updated_at:new Date().toISOString()
+    };
+    const { error } = await sb.from("yutai_balance").insert(row);
+    if(error){ $("#add-err").innerHTML = `<div class="err">登録に失敗しました：${esc(error.message)}</div>`; return; }
+    await loadAll(); toast("残額データを登録しました"); renderList();
+  };
+}
+
+/* ---------------- 画面：銘柄マスタ一覧 ---------------- */
+function renderMasterList(){
+  view = { name:"masterList" };
+  setNav("master");
+  let html = `<h2>銘柄マスタ</h2>`;
+  if(masters.length === 0){
+    html += `<div class="empty">銘柄マスタが未登録です。<br>右下のボタンから登録してください。</div>`;
+  }else{
+    for(const m of masters){
+      const kai = Number(m.times_per_year) === 2
+        ? `${m.month1}月・${m.month2}月`
+        : `${m.month1}月`;
+      html += `
+      <div class="ticket" data-pk="${esc(m.code)}__${esc(m.account)}">
+        <div class="t-main">
+          <div class="t-code">${esc(m.code)}</div>
+          <div class="t-name">${esc(m.name)}</div>
+          <div class="t-meta">${acctChip(m.account)} <span class="chip form">${esc(m.format)}</span> <span class="chip form">${esc(m.benefit_type)}</span> <span class="chip days-ok">優待月 ${kai}</span></div>
+        </div>
+        <div class="t-stub">
+          <div class="t-balance" style="font-size:15px;">${fmtNum(m.amount1)}<small>${unit(m.benefit_type)}</small></div>
+          <div class="t-exp">年${esc(m.times_per_year)}回</div>
+        </div>
+      </div>`;
+    }
+  }
+  html += `<div style="height:60px;"></div>`;
+  app.innerHTML = html;
+  app.querySelectorAll(".ticket").forEach(el => el.onclick = () => {
+    const [code, account] = el.dataset.pk.split("__");
+    renderMasterForm(masters.find(m => m.code === code && m.account === account));
+  });
+  setFab("＋ 銘柄を登録", () => renderMasterForm(null));
+}
+
+/* ---------------- 画面：銘柄マスタ登録・編集 ---------------- */
+function renderMasterForm(m){
+  const isEdit = !!m;
+  view = { name:"masterForm" };
+  setFab(null);
+  const v = m ?? { code:"", name:"", account:"SBI", format:"紙", benefit_type:"金額", times_per_year:1,
+                   month1:"", expiry_months1:"", amount1:"", month2:"", expiry_months2:"", amount2:"",
+                   url:"", login_id:"", login_pass:"", memo:"" };
+  const monthOpts = sel => Array.from({length:12},(_,i)=>`<option value="${i+1}" ${Number(sel)===i+1?"selected":""}>${i+1}月</option>`).join("");
+  const emOpts = sel => Array.from({length:12},(_,i)=>`<option value="${i+1}" ${Number(sel)===i+1?"selected":""}>${i+1}か月後</option>`).join("");
+  const selOpts = (arr, sel) => arr.map(a=>`<option ${a===sel?"selected":""}>${a}</option>`).join("");
+  const kaiBlock = (n, mo, em, amt) => `
+    <div class="kai-block" id="kai${n}">
+      <h4>優待 回${n}</h4>
+      <div class="grid3">
+        <div class="field"><label>優待月</label><select id="m-month${n}"><option value="">－</option>${monthOpts(mo)}</select></div>
+        <div class="field"><label>有効期限</label><select id="m-em${n}"><option value="">－</option>${emOpts(em)}</select></div>
+        <div class="field"><label>優待額</label><input type="number" inputmode="numeric" id="m-amount${n}" value="${amt ?? ""}"></div>
+      </div>
+    </div>`;
+  app.innerHTML = `
+  <button class="back" id="back">‹ マスタ一覧に戻る</button>
+  <h2>${isEdit ? "銘柄マスタの編集" : "銘柄マスタの登録"}</h2>
+  <div class="card">
+    <div id="m-err"></div>
+    <div class="grid2">
+      <div class="field"><label>コード（半角英数）</label><input type="text" id="m-code" value="${esc(v.code)}" ${isEdit?"disabled":""} autocapitalize="characters" autocomplete="off"></div>
+      <div class="field"><label>証券口座</label><select id="m-account" ${isEdit?"disabled":""}>${selOpts(ACCOUNTS, v.account)}</select></div>
+    </div>
+    ${isEdit ? `<p class="sub" style="margin:-6px 0 10px;">コードと証券口座はキー項目のため変更できません。</p>` : ""}
+    <div class="field"><label>銘柄名</label><input type="text" id="m-name" value="${esc(v.name)}"></div>
+    <div class="grid2">
+      <div class="field"><label>形式</label><select id="m-format">${selOpts(FORMATS, v.format)}</select></div>
+      <div class="field"><label>優待種類</label><select id="m-type">${selOpts(TYPES, v.benefit_type)}</select></div>
+    </div>
+    <div class="field"><label>年優待回数</label>
+      <div class="seg">
+        <button type="button" id="times1" class="${Number(v.times_per_year)!==2?"on":""}">年1回</button>
+        <button type="button" id="times2" class="${Number(v.times_per_year)===2?"on":""}">年2回</button>
+      </div>
+    </div>
+    ${kaiBlock(1, v.month1, v.expiry_months1, v.amount1)}
+    ${kaiBlock(2, v.month2, v.expiry_months2, v.amount2)}
+    <div id="digital-block">
+      <div class="field"><label>URL（電子のみ）</label><input type="url" id="m-url" value="${esc(v.url)}" autocomplete="off"></div>
+      <div class="grid2">
+        <div class="field"><label>ID（電子のみ）</label><input type="text" id="m-id" value="${esc(v.login_id)}" autocomplete="off"></div>
+        <div class="field"><label>PASS（電子のみ）</label><input type="text" id="m-pass" value="${esc(v.login_pass)}" autocomplete="off"></div>
+      </div>
+    </div>
+    <div class="field"><label>メモ(マスタ)</label><input type="text" id="m-memo" value="${esc(v.memo)}"></div>
+    <button class="btn primary" id="m-save">${isEdit ? "更新する" : "登録する"}</button>
+    ${isEdit ? `<div class="btn-row"><button class="btn danger" id="m-del">このマスタを削除</button></div>` : ""}
+  </div>`;
+  $("#back").onclick = renderMasterList;
+
+  let times = Number(v.times_per_year) === 2 ? 2 : 1;
+  function syncTimes(){
+    $("#times1").classList.toggle("on", times === 1);
+    $("#times2").classList.toggle("on", times === 2);
+    $("#kai2").style.display = times === 2 ? "" : "none";
+  }
+  $("#times1").onclick = () => { times = 1; syncTimes(); };
+  $("#times2").onclick = () => { times = 2; syncTimes(); };
+  function syncDigital(){
+    $("#digital-block").style.display = $("#m-format").value === "電子" ? "" : "none";
+  }
+  $("#m-format").onchange = syncDigital;
+  syncTimes(); syncDigital();
+
+  $("#m-save").onclick = async () => {
+    const code = ($("#m-code").value || "").trim();
+    const errBox = $("#m-err");
+    if(!/^[A-Za-z0-9]+$/.test(code)){ errBox.innerHTML = `<div class="err">コードは半角英数で入力してください。</div>`; return; }
+    if(!$("#m-name").value.trim()){ errBox.innerHTML = `<div class="err">銘柄名を入力してください。</div>`; return; }
+    if(!$("#m-month1").value || !$("#m-em1").value){ errBox.innerHTML = `<div class="err">回1の優待月と有効期限を選択してください。</div>`; return; }
+    if(times === 2 && (!$("#m-month2").value || !$("#m-em2").value)){ errBox.innerHTML = `<div class="err">回2の優待月と有効期限を選択してください。</div>`; return; }
+    const account = $("#m-account").value;
+    if(!isEdit && masters.some(x => x.code === code && x.account === account)){
+      errBox.innerHTML = `<div class="err">同じコード×証券口座のマスタが既に存在します。</div>`; return;
+    }
+    const digital = $("#m-format").value === "電子";
+    const row = {
+      code, account,
+      name:$("#m-name").value.trim(),
+      format:$("#m-format").value,
+      benefit_type:$("#m-type").value,
+      times_per_year:times,
+      month1:Number($("#m-month1").value), expiry_months1:Number($("#m-em1").value), amount1:Number($("#m-amount1").value || 0),
+      month2:times === 2 ? Number($("#m-month2").value) : null,
+      expiry_months2:times === 2 ? Number($("#m-em2").value) : null,
+      amount2:times === 2 ? Number($("#m-amount2").value || 0) : null,
+      url:digital ? $("#m-url").value : "",
+      login_id:digital ? $("#m-id").value : "",
+      login_pass:digital ? $("#m-pass").value : "",
+      memo:$("#m-memo").value,
+      updated_at:new Date().toISOString()
+    };
+    let error;
+    if(isEdit){
+      ({ error } = await sb.from("yutai_master").update(row).match({ code, account }));
+    }else{
+      row.created_at = new Date().toISOString();
+      ({ error } = await sb.from("yutai_master").insert(row));
+    }
+    if(error){ errBox.innerHTML = `<div class="err">保存に失敗しました：${esc(error.message)}</div>`; return; }
+    await loadAll();
+    await autoGenerate();          // 登録直後にも自動作成を判定
+    toast(isEdit ? "マスタを更新しました" : "マスタを登録しました");
+    renderMasterList();
+  };
+
+  if(isEdit){
+    $("#m-del").onclick = async () => {
+      if(!confirm(`${m.name}（${m.account}）のマスタを削除します。\n登録済みの残額データは削除されません。よろしいですか？`)) return;
+      const { error } = await sb.from("yutai_master").delete().match({ code:m.code, account:m.account });
+      if(error){ toast("削除に失敗しました"); console.error(error); return; }
+      await loadAll(); toast("マスタを削除しました"); renderMasterList();
+    };
+  }
+}
+
+/* ---------------- 共通UI ---------------- */
+let fabEl = null;
+function setFab(label, handler){
+  if(fabEl){ fabEl.remove(); fabEl = null; }
+  if(!label) return;
+  fabEl = document.createElement("button");
+  fabEl.className = "fab"; fabEl.textContent = label; fabEl.onclick = handler;
+  document.body.appendChild(fabEl);
+}
+function setNav(active){
+  $("#nav-list").classList.toggle("active", active === "list");
+  $("#nav-master").classList.toggle("active", active === "master");
+}
+$("#nav-list").onclick = renderList;
+$("#nav-master").onclick = renderMasterList;
+
+/* ---------------- 起動 ---------------- */
+async function boot(){
+  if(SUPABASE_URL.includes("YOUR-") || SUPABASE_ANON_KEY.includes("YOUR-")){
+    app.innerHTML = `<div class="card"><h2>初期設定が必要です</h2>
+      <p style="font-size:14px;">index.html 冒頭の <b>SUPABASE_URL</b> と <b>SUPABASE_ANON_KEY</b> を、ご自身のSupabaseプロジェクトの値に書き換えてください。あわせて setup.sql をSupabaseのSQL Editorで実行するとテーブルが作成されます。</p></div>`;
+    return;
+  }
+  try{
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    await loadAll();
+    await autoGenerate();
+    renderList();
+  }catch(e){
+    console.error(e);
+    app.innerHTML = `<div class="err">データの読み込みに失敗しました。通信環境とSupabaseの設定（URL・キー・テーブル・RLSポリシー）をご確認ください。<br><span class="sub">${esc(e.message ?? e)}</span></div>`;
+  }
+}
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js").catch(()=>{}); }
+boot();
+</script>
+</body>
+</html>
