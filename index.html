@@ -46,30 +46,30 @@ h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
 
 /* ------- チケット型カード（一覧のシグネチャ要素） ------- */
 .ticket{
-  background:var(--card); border-radius:var(--radius); margin-bottom:12px;
+  background:var(--card); border-radius:var(--radius); margin-bottom:8px;
   display:flex; position:relative; overflow:hidden; cursor:pointer;
   box-shadow:0 1px 3px rgba(20,50,40,.08);
   border:1px solid var(--line);
 }
 .ticket:active{transform:scale(.99);}
-.t-main{flex:1; padding:12px 14px; min-width:0;}
+.t-main{flex:1; padding:7px 12px; min-width:0;}
 .t-stub{
-  width:118px; flex-shrink:0; padding:12px 10px;
+  width:108px; flex-shrink:0; padding:7px 10px;
   border-left:2px dashed #CBD6CE;
   display:flex; flex-direction:column; justify-content:center; align-items:flex-end;
   background:linear-gradient(180deg,#FBFCFA,#F3F6F2);
   position:relative;
 }
 .ticket::before,.ticket::after{
-  content:""; position:absolute; width:16px; height:16px; border-radius:50%;
+  content:""; position:absolute; width:14px; height:14px; border-radius:50%;
   background:var(--bg); border:1px solid var(--line);
-  right:calc(118px - 8px); z-index:2;
+  right:calc(108px - 7px); z-index:2;
 }
-.ticket::before{top:-9px;} .ticket::after{bottom:-9px;}
-.t-code{font-size:11px; color:var(--muted); font-weight:600; letter-spacing:.06em;}
-.t-name{font-size:15px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.t-meta{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; align-items:center;}
-.t-balance{font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--green);}
+.ticket::before{top:-8px;} .ticket::after{bottom:-8px;}
+.t-code{font-size:10px; color:var(--muted); font-weight:600; letter-spacing:.06em;}
+.t-name{font-size:14px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.t-meta{display:flex; flex-wrap:wrap; gap:5px; margin-top:3px; align-items:center;}
+.t-balance{font-size:17px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--green);}
 .t-balance small{font-size:11px; font-weight:600; color:var(--muted); margin-left:2px;}
 .t-balance.zero{color:#9AA8A1; text-decoration:line-through;}
 .t-exp{font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;}
@@ -139,6 +139,20 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 .balance-edit{display:flex; gap:8px; align-items:center; margin-top:10px;}
 .balance-edit input{font-size:20px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums;}
 
+/* 集計サマリー */
+.summary{display:flex; background:var(--green); color:#fff; border-radius:var(--radius); padding:9px 4px; margin-bottom:10px;}
+.summary > div{flex:1; text-align:center; border-right:1px solid rgba(255,255,255,.18);}
+.summary > div:last-child{border-right:none;}
+.summary .s-label{display:block; font-size:10px; opacity:.75; letter-spacing:.08em;}
+.summary .s-val{font-size:15px; font-weight:800; font-variant-numeric:tabular-nums;}
+.summary .s-val small{font-size:10px; font-weight:600; opacity:.8;}
+
+/* ソート・絞り込みツールバー */
+.toolbar{display:flex; gap:6px; margin-bottom:10px;}
+.toolbar select,.toolbar input{
+  flex:1; min-width:0; font:inherit; font-size:13px; padding:6px 8px;
+  border:1px solid #CBD6CE; border-radius:8px; background:#fff; color:var(--ink);
+}
 .fab{
   position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom) + 20px); z-index:15;
   background:var(--green); color:#fff; border:none; border-radius:99px;
@@ -171,8 +185,8 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ================= Supabase 設定（ここを書き換えてください） ================= */
-const SUPABASE_URL      = "https://czcuyizwgrrpyibnosmr.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6Y3V5aXp3Z3JycHlpYm5vc21yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxNTA3NjcsImV4cCI6MjA5ODcyNjc2N30.2Y9X-xtPOHpU9-f2ydOLm3bPkr7iiV3_OX1lsHnfQwQ";
+const SUPABASE_URL      = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
 /* ======================================================================== */
 
 const ACCOUNTS = ["SBI","楽天","マネックス"];
@@ -184,6 +198,24 @@ let masters = [];   // yutai_master
 let balances = [];  // yutai_balance
 let showUsed = false;
 let view = { name:"list" };
+
+/* 一覧のソート・絞り込み状態（画面を行き来しても保持） */
+let listSort = "asc";      // 残額一覧：期限順（asc=近い順）
+let listMonth = "all";     // 残額一覧：期限月での絞り込み
+let masterQuery = "";      // マスタ一覧：コード・銘柄名の検索
+let masterAccount = "all"; // マスタ一覧：証券口座での絞り込み
+let masterSort = "code";   // マスタ一覧：並び順
+
+/* 銘柄コード→銘柄名の対応表（stocks.json：JPX東証上場銘柄一覧由来） */
+let stockMap = null;
+async function loadStockMap(){
+  if(stockMap) return stockMap;
+  try{
+    const res = await fetch("./stocks.json");
+    stockMap = res.ok ? await res.json() : {};
+  }catch(e){ stockMap = {}; }
+  return stockMap;
+}
 
 const $ = s => document.querySelector(s);
 const app = $("#app");
@@ -290,15 +322,40 @@ function groupBalances(){
 function renderList(){
   view = { name:"list" };
   setNav("list");
-  const groups = groupBalances();
-  const visible = groups.filter(g => showUsed || g.total > 0);
+  let groups = groupBalances();
+  if(listMonth !== "all"){
+    groups = groups.filter(g => Number(g.expiry.slice(5,7)) === Number(listMonth));
+  }
+  let visible = groups.filter(g => showUsed || g.total > 0);
+  if(listSort === "desc") visible = [...visible].reverse();
+
+  // ヘッダ集計（表示中のデータが対象。金額と枚数は分けて集計）
+  const codeSet  = new Set(visible.map(g => g.code));
+  const yenTotal = visible.filter(g => g.benefit_type !== "枚数").reduce((s,g)=> s + g.total, 0);
+  const maiTotal = visible.filter(g => g.benefit_type === "枚数").reduce((s,g)=> s + g.total, 0);
+  const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i+1}" ${String(listMonth)===String(i+1)?"selected":""}>${i+1}月が期限</option>`).join("");
+
   let html = `
-    <div class="row-between" style="margin-bottom:12px;">
+    <div class="row-between" style="margin-bottom:10px;">
       <h2 style="margin:0;">優待残高一覧</h2>
       <label class="switch"><input type="checkbox" id="sw-used" ${showUsed?"checked":""}><span class="sw-track"></span>使用済も表示</label>
+    </div>
+    <div class="summary">
+      <div><span class="s-label">銘柄数</span><span class="s-val">${codeSet.size}<small> 銘柄</small></span></div>
+      <div><span class="s-label">金額合計</span><span class="s-val">${fmtNum(yenTotal)}<small> 円</small></span></div>
+      <div><span class="s-label">枚数合計</span><span class="s-val">${fmtNum(maiTotal)}<small> 枚</small></span></div>
+    </div>
+    <div class="toolbar">
+      <select id="f-month"><option value="all">全期限月</option>${monthOpts}</select>
+      <select id="f-sort">
+        <option value="asc" ${listSort==="asc"?"selected":""}>期限が近い順</option>
+        <option value="desc" ${listSort==="desc"?"selected":""}>期限が遠い順</option>
+      </select>
     </div>`;
   if(visible.length === 0){
-    html += `<div class="empty">表示できる優待がありません。<br>まず「銘柄マスタ」から銘柄を登録すると、<br>優待月に残額データが自動作成されます。</div>`;
+    html += (listMonth !== "all")
+      ? `<div class="empty">この条件に合う優待がありません。<br>絞り込みを「全期限月」に戻すと全件表示されます。</div>`
+      : `<div class="empty">表示できる優待がありません。<br>まず「銘柄マスタ」から銘柄を登録すると、<br>優待月に残額データが自動作成されます。</div>`;
   }else{
     for(const g of visible){
       const used = g.total <= 0;
@@ -324,6 +381,8 @@ function renderList(){
   app.innerHTML = html;
   const sw = $("#sw-used");
   if(sw) sw.onchange = e => { showUsed = e.target.checked; renderList(); };
+  $("#f-month").onchange = e => { listMonth = e.target.value; renderList(); };
+  $("#f-sort").onchange  = e => { listSort  = e.target.value; renderList(); };
   app.querySelectorAll(".ticket").forEach(el => el.onclick = () => renderDetail(el.dataset.key));
   setFab("＋ 残額データを追加", renderBalanceAdd);
 }
@@ -483,11 +542,37 @@ function renderBalanceAdd(){
 function renderMasterList(){
   view = { name:"masterList" };
   setNav("master");
-  let html = `<h2>銘柄マスタ</h2>`;
+
+  // 絞り込み・並び替え
+  let list = masters;
+  const q = masterQuery.trim().toLowerCase();
+  if(q) list = list.filter(m => m.code.toLowerCase().includes(q) || (m.name ?? "").toLowerCase().includes(q));
+  if(masterAccount !== "all") list = list.filter(m => m.account === masterAccount);
+  list = [...list].sort((a,b) => {
+    if(masterSort === "name")  return (a.name ?? "").localeCompare(b.name ?? "", "ja") || a.code.localeCompare(b.code);
+    if(masterSort === "month") return (a.month1 ?? 99) - (b.month1 ?? 99) || a.code.localeCompare(b.code);
+    return a.code.localeCompare(b.code) || a.account.localeCompare(b.account);
+  });
+
+  const acctOpts = ACCOUNTS.map(a=>`<option value="${a}" ${masterAccount===a?"selected":""}>${a}</option>`).join("");
+  let html = `<h2>銘柄マスタ</h2>
+    <div class="toolbar">
+      <input type="text" id="mf-q" placeholder="コード・銘柄名で検索" value="${esc(masterQuery)}">
+    </div>
+    <div class="toolbar">
+      <select id="mf-acct"><option value="all">全口座</option>${acctOpts}</select>
+      <select id="mf-sort">
+        <option value="code" ${masterSort==="code"?"selected":""}>コード順</option>
+        <option value="name" ${masterSort==="name"?"selected":""}>銘柄名順</option>
+        <option value="month" ${masterSort==="month"?"selected":""}>優待月順</option>
+      </select>
+    </div>`;
   if(masters.length === 0){
     html += `<div class="empty">銘柄マスタが未登録です。<br>右下のボタンから登録してください。</div>`;
+  }else if(list.length === 0){
+    html += `<div class="empty">この条件に合う銘柄がありません。<br>検索条件や絞り込みを見直してください。</div>`;
   }else{
-    for(const m of masters){
+    for(const m of list){
       const kai = Number(m.times_per_year) === 2
         ? `${m.month1}月・${m.month2}月`
         : `${m.month1}月`;
@@ -507,6 +592,15 @@ function renderMasterList(){
   }
   html += `<div style="height:60px;"></div>`;
   app.innerHTML = html;
+  const qEl = $("#mf-q");
+  qEl.oninput = e => {
+    masterQuery = e.target.value;
+    const pos = qEl.selectionStart;
+    renderMasterList();
+    const nq = $("#mf-q"); nq.focus(); nq.setSelectionRange(pos, pos);
+  };
+  $("#mf-acct").onchange = e => { masterAccount = e.target.value; renderMasterList(); };
+  $("#mf-sort").onchange = e => { masterSort = e.target.value; renderMasterList(); };
   app.querySelectorAll(".ticket").forEach(el => el.onclick = () => {
     const [code, account] = el.dataset.pk.split("__");
     renderMasterForm(masters.find(m => m.code === code && m.account === account));
@@ -515,8 +609,8 @@ function renderMasterList(){
 }
 
 /* ---------------- 画面：銘柄マスタ登録・編集 ---------------- */
-function renderMasterForm(m){
-  const isEdit = !!m;
+function renderMasterForm(m, isCopy = false){
+  const isEdit = !!m && !isCopy;
   view = { name:"masterForm" };
   setFab(null);
   const v = m ?? { code:"", name:"", account:"SBI", format:"紙", benefit_type:"金額", times_per_year:1,
@@ -536,9 +630,10 @@ function renderMasterForm(m){
     </div>`;
   app.innerHTML = `
   <button class="back" id="back">‹ マスタ一覧に戻る</button>
-  <h2>${isEdit ? "銘柄マスタの編集" : "銘柄マスタの登録"}</h2>
+  <h2>${isEdit ? "銘柄マスタの編集" : isCopy ? "銘柄マスタの登録（コピー）" : "銘柄マスタの登録"}</h2>
   <div class="card">
     <div id="m-err"></div>
+    ${isCopy ? `<p class="sub" style="margin-bottom:10px;">「${esc(m.name)}（${esc(m.account)}）」の内容を引き継いでいます。コードまたは証券口座を変えて登録してください。</p>` : ""}
     <div class="grid2">
       <div class="field"><label>コード（半角英数）</label><input type="text" id="m-code" value="${esc(v.code)}" ${isEdit?"disabled":""} autocapitalize="characters" autocomplete="off"></div>
       <div class="field"><label>証券口座</label><select id="m-account" ${isEdit?"disabled":""}>${selOpts(ACCOUNTS, v.account)}</select></div>
@@ -566,7 +661,10 @@ function renderMasterForm(m){
     </div>
     <div class="field"><label>メモ(マスタ)</label><input type="text" id="m-memo" value="${esc(v.memo)}"></div>
     <button class="btn primary" id="m-save">${isEdit ? "更新する" : "登録する"}</button>
-    ${isEdit ? `<div class="btn-row"><button class="btn danger" id="m-del">このマスタを削除</button></div>` : ""}
+    ${isEdit ? `<div class="btn-row">
+      <button class="btn ghost" id="m-copy">コピーして新規作成</button>
+      <button class="btn danger" id="m-del" style="flex:0 0 110px;">削除</button>
+    </div>` : ""}
   </div>`;
   $("#back").onclick = renderMasterList;
 
@@ -583,6 +681,24 @@ function renderMasterForm(m){
   }
   $("#m-format").onchange = syncDigital;
   syncTimes(); syncDigital();
+
+  // コード入力時に銘柄名を自動入力（stocks.json：東証上場銘柄一覧由来。手入力で上書き可）
+  if(!isEdit){
+    loadStockMap(); // 先読み
+    if(isCopy) $("#m-name").dataset.auto = "1"; // コピー時はコード変更で銘柄名も追従
+    $("#m-code").addEventListener("input", async e => {
+      const code = e.target.value.trim().toUpperCase();
+      if(!/^[0-9][0-9A-Z]{3}$/.test(code)) return;
+      const map = await loadStockMap();
+      const nm = map[code];
+      const nameEl = $("#m-name");
+      if(nm && (!nameEl.value.trim() || nameEl.dataset.auto === "1")){
+        nameEl.value = nm;
+        nameEl.dataset.auto = "1";
+      }
+    });
+    $("#m-name").addEventListener("input", e => { e.target.dataset.auto = "0"; });
+  }
 
   $("#m-save").onclick = async () => {
     const code = ($("#m-code").value || "").trim();
@@ -627,6 +743,7 @@ function renderMasterForm(m){
   };
 
   if(isEdit){
+    $("#m-copy").onclick = () => renderMasterForm(m, true);
     $("#m-del").onclick = async () => {
       if(!confirm(`${m.name}（${m.account}）のマスタを削除します。\n登録済みの残額データは削除されません。よろしいですか？`)) return;
       const { error } = await sb.from("yutai_master").delete().match({ code:m.code, account:m.account });

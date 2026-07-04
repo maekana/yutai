@@ -1,5 +1,5 @@
 // 優待手帳 Service Worker
-const CACHE = "yutai-v1";
+const CACHE = "yutai-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const SHELL = [
   "./icon-192.png",
   "./icon-512.png",
   "./apple-touch-icon.png",
+  "./stocks.json",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
 ];
 
