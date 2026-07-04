@@ -136,8 +136,21 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 .kv .v{text-align:right; word-break:break-all; font-variant-numeric:tabular-nums;}
 .kv .v a{color:var(--green); font-weight:700;}
 .copybtn{font:inherit; font-size:11px; font-weight:700; border:1px solid #CBD6CE; background:#fff; color:var(--green); border-radius:7px; padding:1px 8px; margin-left:6px; cursor:pointer;}
-.balance-edit{display:flex; gap:8px; align-items:center; margin-top:10px;}
-.balance-edit input{font-size:20px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums;}
+.balance-edit{display:flex; gap:6px; align-items:stretch;}
+.balance-edit input{flex:1; min-width:72px; font-size:17px; font-weight:800; text-align:right; font-variant-numeric:tabular-nums;}
+.qbtn{
+  flex-shrink:0; white-space:nowrap; font:inherit; font-size:12.5px; font-weight:800;
+  padding:0 10px; border-radius:9px; border:1.5px solid var(--green);
+  background:#fff; color:var(--green); cursor:pointer;
+}
+.qbtn:active{background:var(--green-soft);}
+.qbtn.zero{border-color:var(--red); color:var(--red);}
+.qbtn.zero:active{background:#F6E2DF;}
+.mapbtn{
+  display:inline-block; margin-top:10px; font-size:12.5px; font-weight:700;
+  color:#fff; text-decoration:none; padding:7px 14px; border-radius:99px;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.4);
+}
 
 /* 集計サマリー */
 .summary{display:flex; background:var(--green); color:#fff; border-radius:var(--radius); padding:9px 4px; margin-bottom:10px;}
@@ -294,6 +307,7 @@ async function autoGenerate(){
         amount:amt ?? 0, balance:amt ?? 0,
         url:m.url, login_id:m.login_id, login_pass:m.login_pass,
         memo_master:m.memo, memo_tran:"",
+        received:false,
         created_at:new Date().toISOString(), updated_at:new Date().toISOString()
       });
     }
@@ -312,9 +326,10 @@ function groupBalances(){
   const map = new Map();
   for(const r of balances){
     const key = `${r.code}__${r.expiry}`;
-    if(!map.has(key)) map.set(key, { key, code:r.code, expiry:r.expiry, name:r.name, benefit_type:r.benefit_type, total:0, rows:[] });
+    if(!map.has(key)) map.set(key, { key, code:r.code, expiry:r.expiry, name:r.name, benefit_type:r.benefit_type, total:0, recv:0, rows:[] });
     const g = map.get(key);
     g.total += Number(r.balance ?? 0);
+    if(r.received) g.recv += 1;
     g.rows.push(r);
   }
   return [...map.values()].sort((a,b)=> a.expiry === b.expiry ? a.code.localeCompare(b.code) : a.expiry.localeCompare(b.expiry));
@@ -366,6 +381,7 @@ function renderList(){
           <div class="t-name">${esc(g.name)}</div>
           <div class="t-meta">
             ${daysChip(g.expiry)}
+            <span class="chip ${g.recv === g.rows.length ? "days-ok" : "days-warn"}">${g.recv}/${g.rows.length}受取済</span>
             ${used ? `<span class="chip used">使用済</span>` : ""}
             ${g.rows.length > 1 ? `<span class="chip form">${g.rows.length}口座合算</span>` : acctChip(g.rows[0].account)}
           </div>
@@ -394,6 +410,9 @@ function renderDetail(key){
   if(rows.length === 0){ renderList(); return; }
   view = { name:"detail", key };
   const total = rows.reduce((s,r)=> s + Number(r.balance ?? 0), 0);
+  const mapQ = encodeURIComponent(
+    ((rows[0].name ?? "").replace(/ホールディングス|ホールディングズ|グループ|ＨＤ|HD/g,"").trim() || rows[0].name || code)
+  );
   let html = `<button class="back" id="back">‹ 一覧に戻る</button>
     <div class="d-head">
       <div class="sub" style="color:rgba(255,255,255,.7);">${esc(code)}　期限 ${fmtDate(expiry)}　${rows.length}件</div>
@@ -401,30 +420,42 @@ function renderDetail(key){
         <div class="name">${esc(rows[0].name)}</div>
         <div class="total">${fmtNum(total)}<small style="font-size:12px;color:rgba(255,255,255,.8);"> ${unit(rows[0].benefit_type)}</small></div>
       </div>
+      <a class="mapbtn" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">📍 使える店舗をマップで探す</a>
     </div>`;
   rows.forEach((r, i) => {
-    const digital = r.format === "電子";
     html += `
     <div class="card" data-i="${i}">
       <div class="row-between" style="margin-bottom:8px;">
-        <div>${acctChip(r.account)} <span class="chip form">${esc(r.format)}</span> <span class="chip form">${esc(r.benefit_type)}</span></div>
-        <div class="sub">優待額 ${fmtNum(r.amount)}${unit(r.benefit_type)}</div>
+        <div>${acctChip(r.account)}</div>
+        <label class="switch"><input type="checkbox" class="in-received" ${r.received ? "checked" : ""}><span class="sw-track"></span>受取済</label>
       </div>
-      <div class="kv"><span class="k">有効期限</span><span class="v">${fmtDate(r.expiry)}</span></div>
-      ${digital && r.url ? `<div class="kv"><span class="k">URL</span><span class="v"><a href="${esc(r.url)}" target="_blank" rel="noopener">サイトを開く ↗</a></span></div>` : ""}
-      ${digital && r.login_id ? `<div class="kv"><span class="k">ID</span><span class="v">${esc(r.login_id)}<button class="copybtn" data-copy="${esc(r.login_id)}">コピー</button></span></div>` : ""}
-      ${digital && r.login_pass ? `<div class="kv"><span class="k">PASS</span><span class="v"><span class="pw" data-pw="${esc(r.login_pass)}">••••••</span><button class="copybtn showpw">表示</button><button class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button></span></div>` : ""}
-      ${r.memo_master ? `<div class="kv"><span class="k">メモ(マスタ)</span><span class="v">${esc(r.memo_master)}</span></div>` : ""}
-      <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
-      <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
-      <div class="field" style="margin-top:12px;">
+      <div class="field"><label>銘柄名</label><input type="text" class="in-name" value="${esc(r.name)}"></div>
+      <div class="grid3">
+        <div class="field"><label>形式</label><select class="in-format">${FORMATS.map(f=>`<option ${f===r.format?"selected":""}>${f}</option>`).join("")}</select></div>
+        <div class="field"><label>優待種類</label><select class="in-type">${TYPES.map(t=>`<option ${t===r.benefit_type?"selected":""}>${t}</option>`).join("")}</select></div>
+        <div class="field"><label>優待額</label><input type="number" inputmode="numeric" class="in-amount" value="${Number(r.amount ?? 0)}"></div>
+      </div>
+      <div class="field"><label>有効期限（キー項目：変更時は重複不可）</label><input type="date" class="in-expiry" value="${esc(r.expiry)}"></div>
+      <div class="field"><label>URL${r.url ? `　<a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--green);">サイトを開く ↗</a>` : ""}</label><input type="url" class="in-url" value="${esc(r.url)}" autocomplete="off"></div>
+      <div class="grid2">
+        <div class="field"><label>ID${r.login_id ? `　<button type="button" class="copybtn" data-copy="${esc(r.login_id)}">コピー</button>` : ""}</label><input type="text" class="in-id" value="${esc(r.login_id)}" autocomplete="off"></div>
+        <div class="field"><label>PASS${r.login_pass ? `　<button type="button" class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button>` : ""}</label><input type="text" class="in-pass" value="${esc(r.login_pass)}" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>メモ(マスタ)</label><input type="text" class="in-memom" value="${esc(r.memo_master)}"></div>
+      <div class="field">
         <label>残額（${unit(r.benefit_type)}）</label>
         <div class="balance-edit">
           <input type="number" inputmode="numeric" class="in-balance" value="${Number(r.balance ?? 0)}">
-          <button class="btn ghost small zero-btn">使い切り</button>
+          ${r.benefit_type === "枚数"
+            ? `<button type="button" class="qbtn minus" data-v="1">−1枚</button>`
+            : `<button type="button" class="qbtn minus" data-v="500">−500</button>
+               <button type="button" class="qbtn minus" data-v="1000">−1,000</button>`}
+          <button type="button" class="qbtn zero zero-btn">使い切り</button>
         </div>
       </div>
       <div class="field"><label>メモ(トラン)</label><input type="text" class="in-memo" value="${esc(r.memo_tran)}"></div>
+      <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
+      <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
       <div class="btn-row">
         <button class="btn primary save-btn">更新する</button>
         <button class="btn danger del-btn" style="flex:0 0 96px;">削除</button>
@@ -438,23 +469,51 @@ function renderDetail(key){
   app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async e => {
     await navigator.clipboard.writeText(e.target.dataset.copy); toast("コピーしました");
   });
-  app.querySelectorAll(".showpw").forEach(b => b.onclick = e => {
-    const pw = e.target.parentElement.querySelector(".pw");
-    const on = pw.textContent !== "••••••";
-    pw.textContent = on ? "••••••" : pw.dataset.pw;
-    e.target.textContent = on ? "表示" : "隠す";
-  });
   app.querySelectorAll(".card").forEach(card => {
     const r = rows[Number(card.dataset.i)];
-    card.querySelector(".zero-btn").onclick = () => { card.querySelector(".in-balance").value = 0; };
-    card.querySelector(".save-btn").onclick = async () => {
-      const balance = Number(card.querySelector(".in-balance").value || 0);
-      const memo = card.querySelector(".in-memo").value;
+    // 受取済トグル（切り替えた時点で即保存）
+    card.querySelector(".in-received").onchange = async e => {
+      const checked = e.target.checked;
       const { error } = await sb.from("yutai_balance")
-        .update({ balance, memo_tran:memo, updated_at:new Date().toISOString() })
+        .update({ received:checked, updated_at:new Date().toISOString() })
+        .match({ code:r.code, account:r.account, expiry:r.expiry });
+      if(error){ toast("更新に失敗しました"); e.target.checked = !checked; console.error(error); return; }
+      await loadAll();
+      toast(checked ? "受取済にしました" : "未受取にしました");
+    };
+    // クイック減算・使い切り（値の変更のみ。「更新する」で確定）
+    card.querySelectorAll(".qbtn.minus").forEach(b => b.onclick = () => {
+      const inp = card.querySelector(".in-balance");
+      inp.value = Math.max(0, Number(inp.value || 0) - Number(b.dataset.v));
+    });
+    card.querySelector(".zero-btn").onclick = () => { card.querySelector(".in-balance").value = 0; };
+    // 更新（マスタ由来項目も含めて全項目を保存。期限変更時はキー重複をチェック）
+    card.querySelector(".save-btn").onclick = async () => {
+      const newExpiry = card.querySelector(".in-expiry").value;
+      if(!newExpiry){ toast("有効期限を入力してください"); return; }
+      if(newExpiry !== r.expiry &&
+         balances.some(x => x.code === r.code && x.account === r.account && x.expiry === newExpiry)){
+        toast(`期限${fmtDate(newExpiry)}の同じ優待が既に存在するため変更できません`); return;
+      }
+      const upd = {
+        name:card.querySelector(".in-name").value.trim() || r.name,
+        format:card.querySelector(".in-format").value,
+        benefit_type:card.querySelector(".in-type").value,
+        amount:Number(card.querySelector(".in-amount").value || 0),
+        expiry:newExpiry,
+        url:card.querySelector(".in-url").value,
+        login_id:card.querySelector(".in-id").value,
+        login_pass:card.querySelector(".in-pass").value,
+        memo_master:card.querySelector(".in-memom").value,
+        balance:Number(card.querySelector(".in-balance").value || 0),
+        memo_tran:card.querySelector(".in-memo").value,
+        updated_at:new Date().toISOString()
+      };
+      const { error } = await sb.from("yutai_balance").update(upd)
         .match({ code:r.code, account:r.account, expiry:r.expiry });
       if(error){ toast("更新に失敗しました"); console.error(error); return; }
-      await loadAll(); toast("更新しました"); renderDetail(key);
+      await loadAll(); toast("更新しました");
+      renderDetail(`${r.code}__${newExpiry}`);
     };
     card.querySelector(".del-btn").onclick = async () => {
       if(!confirm(`${r.name}（${r.account}）の残額データを削除します。よろしいですか？`)) return;
@@ -490,6 +549,9 @@ function renderBalanceAdd(){
     </div>
     <div class="field"><label>残額（初期値は優待額）</label><input type="number" inputmode="numeric" id="a-balance"></div>
     <div class="field"><label>メモ(トラン)</label><input type="text" id="a-memo"></div>
+    <div class="field">
+      <label class="switch"><input type="checkbox" id="a-received" checked><span class="sw-track"></span>受取済として登録する</label>
+    </div>
     <button class="btn primary" id="a-save">登録する</button>
   </div>`;
   $("#back").onclick = renderList;
@@ -530,6 +592,7 @@ function renderBalanceAdd(){
       amount:Number($("#a-amount").value || 0), balance:Number($("#a-balance").value || 0),
       url:m.url, login_id:m.login_id, login_pass:m.login_pass,
       memo_master:m.memo, memo_tran:$("#a-memo").value,
+      received:$("#a-received").checked,
       created_at:new Date().toISOString(), updated_at:new Date().toISOString()
     };
     const { error } = await sb.from("yutai_balance").insert(row);
@@ -731,6 +794,12 @@ function renderMasterForm(m, isCopy = false){
     let error;
     if(isEdit){
       ({ error } = await sb.from("yutai_master").update(row).match({ code, account }));
+      // 銘柄名を変更した場合は、既存の残額データの名称にも反映する
+      if(!error && row.name !== m.name){
+        const nameUpd = await sb.from("yutai_balance").update({ name:row.name }).match({ code, account });
+        if(nameUpd.error) console.error(nameUpd.error);
+        else toast("残額データの銘柄名にも反映しました");
+      }
     }else{
       row.created_at = new Date().toISOString();
       ({ error } = await sb.from("yutai_master").insert(row));
