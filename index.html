@@ -32,13 +32,53 @@ header{
 }
 .hd-title{font-size:15px; font-weight:800; letter-spacing:.14em; display:flex; align-items:baseline; gap:8px;}
 .hd-title small{font-size:9px; font-weight:500; letter-spacing:.08em; opacity:.7;}
-nav{display:flex; gap:4px; margin-top:4px;}
+nav{display:flex; gap:2px; margin-top:4px;}
 nav button{
   flex:1; background:transparent; border:none; color:rgba(255,255,255,.65);
-  font:inherit; font-size:13px; font-weight:700; padding:6px 0 8px; cursor:pointer;
-  border-bottom:3px solid transparent;
+  font:inherit; font-size:11.5px; font-weight:700; padding:6px 0 8px; cursor:pointer;
+  border-bottom:3px solid transparent; white-space:nowrap; letter-spacing:0;
 }
 nav button.active{color:#fff; border-bottom-color:var(--gold);}
+
+/* 口座切替タブ（残額詳細・マスタ編集） */
+.acct-tabs{display:flex; gap:6px; margin-bottom:12px;}
+.acct-tabs button{
+  flex:1; font:inherit; font-size:13px; font-weight:800; padding:9px 0;
+  border-radius:10px; border:1.5px solid #CBD6CE; background:#fff; color:var(--muted); cursor:pointer;
+}
+.acct-tabs button.on{background:var(--green); color:#fff; border-color:var(--green);}
+
+/* 期限月の複数選択チップ */
+.chipbar{display:flex; gap:6px; overflow-x:auto; margin-bottom:10px; padding-bottom:2px; -webkit-overflow-scrolling:touch;}
+.fchip{
+  flex-shrink:0; font:inherit; font-size:12px; font-weight:700; padding:4px 12px;
+  border-radius:99px; border:1px solid #CBD6CE; background:#fff; color:var(--muted); cursor:pointer;
+}
+.fchip.on{background:var(--green); color:#fff; border-color:var(--green);}
+
+/* 消費ペース表示 */
+.t-pace{font-size:10px; font-weight:700; color:var(--amber); font-variant-numeric:tabular-nums;}
+
+/* 有効期限選択モーダル */
+.modal-bg{position:fixed; inset:0; background:rgba(15,40,33,.45); z-index:40; display:flex; align-items:flex-end; justify-content:center;}
+.modal{
+  background:#fff; border-radius:18px 18px 0 0; width:100%; max-width:640px;
+  padding:18px 16px calc(env(safe-area-inset-bottom) + 18px); box-shadow:0 -6px 24px rgba(15,40,33,.25);
+}
+.modal h3{font-size:15px; font-weight:800; margin-bottom:4px;}
+.modal .sub{margin-bottom:12px;}
+.modal-opt{
+  display:flex; justify-content:space-between; align-items:center; width:100%;
+  font:inherit; font-size:14.5px; font-weight:700; color:var(--ink);
+  background:#FAFCFA; border:1.5px solid #CBD6CE; border-radius:12px;
+  padding:12px 14px; margin-bottom:8px; cursor:pointer;
+}
+.modal-opt .mo-bal{font-variant-numeric:tabular-nums; color:var(--green); font-weight:800;}
+.modal-cancel{width:100%; font:inherit; font-size:14px; font-weight:700; color:var(--muted); background:none; border:none; padding:8px 0 0; cursor:pointer;}
+
+/* メモ内リンク */
+.memo-link{margin-top:4px; font-size:12.5px; font-weight:700;}
+.memo-link a{color:var(--green);}
 main{max-width:640px; margin:0 auto; padding:16px 14px;}
 h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
 .sub{font-size:12px; color:var(--muted);}
@@ -206,7 +246,8 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 <header>
   <div class="hd-title">優待手帳 <small>KABUNUSHI YUTAI LEDGER</small></div>
   <nav>
-    <button id="nav-list" class="active">優待残高</button>
+    <button id="nav-list" class="active">優待残高(日付別)</button>
+    <button id="nav-bycode">優待残高(銘柄別)</button>
     <button id="nav-master">銘柄マスタ</button>
   </nav>
 </header>
@@ -230,7 +271,27 @@ let balances = [];  // yutai_balance
 let showUsed = false;
 let showUnrecvOnly = false; // 受取なしのみ表示（受取済の更新漏れ確認用）
 let noticeDismissed = false; // 期限1か月前通知を閉じたか（セッション内で保持）
+let listMonths = new Set();  // 日付別：期限月(yyyy-mm)の複数選択（空=すべて）
+let byCodeSort = "codeAsc";  // 銘柄別のソート
+let lastList = null;         // 詳細から戻る先（日付別 or 銘柄別）
 let view = { name:"list" };
+
+/* テキスト中のURLをリンク化して返す（エスケープ済み） */
+function linkify(s){
+  return esc(s).replace(/(https?:\/\/[^\s<>"']+)/g,
+    u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+/* 今月を1か月目として有効期限月までの月数（例：7/5→8/31 は 2） */
+function monthsUntil(iso){
+  const n = new Date(), e = new Date(iso + "T00:00:00");
+  return (e.getFullYear() - n.getFullYear()) * 12 + (e.getMonth() - n.getMonth()) + 1;
+}
+/* 単純案分の消費ペース（円or枚/月、小数点切り上げ）。対象外はnull */
+function paceOf(total, expiry){
+  if(!(total > 0) || daysLeft(expiry) < 0) return null;
+  const m = Math.max(1, monthsUntil(expiry));
+  return Math.ceil(total / m);
+}
 
 /* 残額詳細：未保存の変更があるかを判定して離脱時に確認する */
 function detailHasChanges(){
@@ -246,7 +307,6 @@ function confirmLeaveDetail(){
 
 /* 一覧のソート・絞り込み状態（画面を行き来しても保持） */
 let listSort = "asc";      // 残額一覧：期限順（asc=近い順）
-let listMonth = "all";     // 残額一覧：期限月での絞り込み
 let masterQuery = "";      // マスタ一覧：コード・銘柄名の検索
 let masterAccount = "all"; // マスタ一覧：証券口座での絞り込み
 let masterSort = "code";   // マスタ一覧：並び順
@@ -394,8 +454,8 @@ function renderList(){
   view = { name:"list" };
   setNav("list");
   let groups = groupBalances();
-  if(listMonth !== "all"){
-    groups = groups.filter(g => Number(g.expiry.slice(5,7)) === Number(listMonth));
+  if(listMonths.size > 0){
+    groups = groups.filter(g => listMonths.has(g.expiry.slice(0,7)));
   }
   let visible = groups.filter(g => showUsed || g.total > 0);
   if(showUnrecvOnly) visible = visible.filter(g => g.recv < g.rows.length);  // 未受取が1件でもある銘柄のみ
@@ -410,10 +470,13 @@ function renderList(){
   const codeSet  = new Set(visible.map(g => g.code));
   const yenTotal = visible.filter(g => g.benefit_type !== "枚数").reduce((s,g)=> s + g.total, 0);
   const maiTotal = visible.filter(g => g.benefit_type === "枚数").reduce((s,g)=> s + g.total, 0);
-  const monthOpts = Array.from({length:12},(_,i)=>`<option value="${i+1}" ${String(listMonth)===String(i+1)?"selected":""}>${i+1}月が期限</option>`).join("");
+  // 期限月チップ：残額データが存在する月だけをyyyy/mm形式で動的に生成（複数選択可）
+  const monthSet = [...new Set(balances.map(r => r.expiry.slice(0,7)))].sort();
+  const monthChips = monthSet.map(ym =>
+    `<button type="button" class="fchip ${listMonths.has(ym) ? "on" : ""}" data-ym="${ym}">${ym.replace("-","/")}</button>`).join("");
 
   let html = `
-    <h2 style="margin-bottom:8px;">優待残高一覧</h2>
+    <h2 style="margin-bottom:8px;">優待残高（日付別）</h2>
     ${(!noticeDismissed && expiring.length > 0) ? `
     <div class="notice">
       <span>⏰ 期限まで1か月以内：${expiring.slice(0,3).map(g=>esc(g.name)).join("、")}${expiring.length > 3 ? ` 他${expiring.length-3}件` : ""}</span>
@@ -428,8 +491,12 @@ function renderList(){
       <div><span class="s-label">金額合計</span><span class="s-val">${fmtNum(yenTotal)}<small> 円</small></span></div>
       <div><span class="s-label">枚数合計</span><span class="s-val">${fmtNum(maiTotal)}<small> 枚</small></span></div>
     </div>
+    ${monthSet.length > 0 ? `
+    <div class="chipbar">
+      <button type="button" class="fchip ${listMonths.size === 0 ? "on" : ""}" data-ym="all">すべて</button>
+      ${monthChips}
+    </div>` : ""}
     <div class="toolbar">
-      <select id="f-month"><option value="all">全期限月</option>${monthOpts}</select>
       <select id="f-sort">
         <option value="asc" ${listSort==="asc"?"selected":""}>期限が近い順</option>
         <option value="desc" ${listSort==="desc"?"selected":""}>期限が遠い順</option>
@@ -438,8 +505,8 @@ function renderList(){
       </select>
     </div>`;
   if(visible.length === 0){
-    html += (listMonth !== "all")
-      ? `<div class="empty">この条件に合う優待がありません。<br>絞り込みを「全期限月」に戻すと全件表示されます。</div>`
+    html += (listMonths.size > 0)
+      ? `<div class="empty">この条件に合う優待がありません。<br>月の絞り込みを「すべて」に戻すと全件表示されます。</div>`
       : `<div class="empty">表示できる優待がありません。<br>まず「銘柄マスタ」から銘柄を登録すると、<br>優待月に残額データが自動作成されます。</div>`;
   }else{
     for(const g of visible){
@@ -465,6 +532,7 @@ function renderList(){
         </div>
         <div class="t-stub">
           <div class="t-balance ${used?"zero":""}">${fmtNum(g.total)}<small>${unit(g.benefit_type)}</small></div>
+          ${(p => p !== null ? `<div class="t-pace">${fmtNum(p)}${unit(g.benefit_type)}/月</div>` : "")(paceOf(g.total, g.expiry))}
           <div class="t-exp">期限 ${fmtDate(g.expiry)}</div>
         </div>
       </div>`;
@@ -477,19 +545,125 @@ function renderList(){
   const nx = $("#notice-x");
   if(nx) nx.onclick = e => { e.stopPropagation(); noticeDismissed = true; renderList(); };
   $("#sw-unrecv").onchange = e => { showUnrecvOnly = e.target.checked; renderList(); };
-  $("#f-month").onchange = e => { listMonth = e.target.value; renderList(); };
+  app.querySelectorAll(".fchip").forEach(ch => ch.onclick = () => {
+    const ym = ch.dataset.ym;
+    if(ym === "all") listMonths.clear();
+    else listMonths.has(ym) ? listMonths.delete(ym) : listMonths.add(ym);
+    renderList();
+  });
   $("#f-sort").onchange  = e => { listSort  = e.target.value; renderList(); };
+  lastList = renderList;
   app.querySelectorAll(".ticket").forEach(el => el.onclick = () => renderDetail(el.dataset.key));
   setFab("＋ 残額データを追加", renderBalanceAdd);
 }
 
-/* ---------------- 画面：残額詳細 ---------------- */
-function renderDetail(key){
+/* ---------------- 画面：残高一覧（銘柄別） ---------------- */
+function groupByCode(){
+  const map = new Map();
+  for(const r of balances){
+    if(!map.has(r.code)) map.set(r.code, { code:r.code, name:r.name, benefit_type:r.benefit_type, total:0, subs:new Map() });
+    const g = map.get(r.code);
+    g.name = r.name; g.benefit_type = r.benefit_type;
+    g.total += Number(r.balance ?? 0);
+    g.subs.set(r.expiry, (g.subs.get(r.expiry) ?? 0) + Number(r.balance ?? 0));
+  }
+  return [...map.values()].map(g => ({
+    ...g,
+    subs:[...g.subs.entries()].map(([expiry, total]) => ({ expiry, total })).sort((a,b)=> a.expiry.localeCompare(b.expiry))
+  }));
+}
+function renderByCode(){
+  view = { name:"byCode" };
+  setNav("bycode");
+  let groups = groupByCode().filter(g => g.total > 0);
+  if(byCodeSort === "codeAsc")       groups.sort((a,b)=> a.code.localeCompare(b.code));
+  else if(byCodeSort === "codeDesc") groups.sort((a,b)=> b.code.localeCompare(a.code));
+  else if(byCodeSort === "balDesc")  groups.sort((a,b)=> b.total - a.total || a.code.localeCompare(b.code));
+  else if(byCodeSort === "balAsc")   groups.sort((a,b)=> a.total - b.total || a.code.localeCompare(b.code));
+
+  let html = `
+    <h2 style="margin-bottom:8px;">優待残高（銘柄別）</h2>
+    <div class="toolbar">
+      <select id="bc-sort">
+        <option value="codeAsc" ${byCodeSort==="codeAsc"?"selected":""}>コード昇順</option>
+        <option value="codeDesc" ${byCodeSort==="codeDesc"?"selected":""}>コード降順</option>
+        <option value="balDesc" ${byCodeSort==="balDesc"?"selected":""}>残額が大きい順</option>
+        <option value="balAsc" ${byCodeSort==="balAsc"?"selected":""}>残額が小さい順</option>
+      </select>
+    </div>`;
+  if(groups.length === 0){
+    html += `<div class="empty">残額のある優待がありません。</div>`;
+  }else{
+    for(const g of groups){
+      const subs = g.subs.filter(s => s.total > 0);
+      html += `
+      <div class="ticket" data-code="${esc(g.code)}">
+        <div class="t-main">
+          <div class="t-code">${esc(g.code)}</div>
+          <div class="t-name">${esc(g.name)}</div>
+          <div class="t-sub">
+            ${subs.map(s => `
+            <div class="t-subrow">
+              ${daysChip(s.expiry)}
+              <span style="font-size:11px; color:var(--muted);">期限 ${fmtDate(s.expiry)}</span>
+              <span class="t-subbal">${fmtNum(s.total)}<small>${unit(g.benefit_type)}</small></span>
+            </div>`).join("")}
+          </div>
+        </div>
+        <div class="t-stub">
+          <div class="t-balance">${fmtNum(g.total)}<small>${unit(g.benefit_type)}</small></div>
+          <div class="t-exp">全期限合計</div>
+        </div>
+      </div>`;
+    }
+  }
+  html += `<div style="height:60px;"></div>`;
+  app.innerHTML = html;
+  $("#bc-sort").onchange = e => { byCodeSort = e.target.value; renderByCode(); };
+  lastList = renderByCode;
+  app.querySelectorAll(".ticket").forEach(el => el.onclick = () => {
+    const g = groups.find(x => x.code === el.dataset.code);
+    const subs = g.subs.filter(s => s.total > 0);
+    if(subs.length === 1){ renderDetail(`${g.code}__${subs[0].expiry}`); return; }
+    openExpiryModal(g, subs);
+  });
+  setFab("＋ 残額データを追加", renderBalanceAdd);
+}
+/* 複数の有効期限がある場合、どの期限を編集するかを選択するモーダル */
+function openExpiryModal(g, subs){
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${esc(g.name)}</h3>
+      <div class="sub">編集する有効期限を選択してください</div>
+      ${subs.map(s => `
+      <button type="button" class="modal-opt" data-expiry="${esc(s.expiry)}">
+        <span>期限 ${fmtDate(s.expiry)}</span>
+        <span class="mo-bal">${fmtNum(s.total)}${unit(g.benefit_type)}</span>
+      </button>`).join("")}
+      <button type="button" class="modal-cancel">キャンセル</button>
+    </div>`;
+  bg.onclick = e => { if(e.target === bg) bg.remove(); };
+  bg.querySelector(".modal-cancel").onclick = () => bg.remove();
+  bg.querySelectorAll(".modal-opt").forEach(b => b.onclick = () => {
+    const expiry = b.dataset.expiry;
+    bg.remove();
+    renderDetail(`${g.code}__${expiry}`);
+  });
+  document.body.appendChild(bg);
+}
+
+/* ---------------- 画面：残額詳細（証券口座タブ切替） ---------------- */
+function renderDetail(key, activeAcct){
   const [code, expiry] = key.split("__");
-  const rows = balances.filter(r => r.code === code && r.expiry === expiry);
-  if(rows.length === 0){ renderList(); return; }
+  const rows = balances.filter(r => r.code === code && r.expiry === expiry)
+    .sort((a,b)=> a.account.localeCompare(b.account));
+  if(rows.length === 0){ (lastList ?? renderList)(); return; }
   view = { name:"detail", key };
   const total = rows.reduce((s,r)=> s + Number(r.balance ?? 0), 0);
+  const r = rows.find(x => x.account === activeAcct) ?? rows[0];
+
   let html = `<button class="back" id="back">‹ 一覧に戻る</button>
     <div class="d-head">
       <div class="sub" style="color:rgba(255,255,255,.7);">${esc(code)}　期限 ${fmtDate(expiry)}　${rows.length}件</div>
@@ -497,44 +671,55 @@ function renderDetail(key){
         <div class="name">${esc(rows[0].name)}</div>
         <div class="total">${fmtNum(total)}<small style="font-size:12px;color:rgba(255,255,255,.8);"> ${unit(rows[0].benefit_type)}</small></div>
       </div>
-    </div>`;
-  rows.forEach((r, i) => {
-    html += `
-    <div class="card" data-i="${i}">
+    </div>
+    <div class="acct-tabs">
+      ${rows.map(x => `<button type="button" class="acct-tab ${x.account === r.account ? "on" : ""}" data-acct="${esc(x.account)}">${esc(x.account)}</button>`).join("")}
+    </div>
+    <div class="card">
       <div class="row-between" style="margin-bottom:8px;">
         <div>${acctChip(r.account)} <span class="chip form">${esc(r.format)}</span> <span class="chip form">${esc(r.benefit_type)}</span></div>
-        <label class="switch"><input type="checkbox" class="in-received" ${r.received ? "checked" : ""}><span class="sw-track"></span>受取済</label>
+        <label class="switch"><input type="checkbox" id="in-received" ${r.received ? "checked" : ""}><span class="sw-track"></span>受取済</label>
       </div>
       <div class="kv"><span class="k">銘柄名</span><span class="v">${esc(r.name)}</span></div>
       <div class="kv"><span class="k">優待額</span><span class="v">${fmtNum(r.amount)}${unit(r.benefit_type)}</span></div>
       ${r.format === "電子" && r.url ? `<div class="kv"><span class="k">URL</span><span class="v"><a href="${esc(r.url)}" target="_blank" rel="noopener">サイトを開く ↗</a></span></div>` : ""}
       ${r.format === "電子" && r.login_id ? `<div class="kv"><span class="k">ID</span><span class="v">${esc(r.login_id)}<button type="button" class="copybtn" data-copy="${esc(r.login_id)}">コピー</button></span></div>` : ""}
       ${r.format === "電子" && r.login_pass ? `<div class="kv"><span class="k">PASS</span><span class="v"><span class="pw" data-pw="${esc(r.login_pass)}">••••••</span><button type="button" class="copybtn showpw">表示</button><button type="button" class="copybtn" data-copy="${esc(r.login_pass)}">コピー</button></span></div>` : ""}
-      ${r.memo_master ? `<div class="kv"><span class="k">メモ(マスタ)</span><span class="v">${esc(r.memo_master)}</span></div>` : ""}
+      ${r.memo_master ? `<div class="kv"><span class="k">メモ(マスタ)</span><span class="v">${linkify(r.memo_master)}</span></div>` : ""}
       <div class="kv"><span class="k">登録日</span><span class="v">${fmtDateTime(r.created_at)}</span></div>
       <div class="kv"><span class="k">最終更新日</span><span class="v">${fmtDateTime(r.updated_at)}</span></div>
-      <div class="field" style="margin-top:12px;"><label>有効期限（変更時はキー重複不可）</label><input type="date" class="in-expiry" value="${esc(r.expiry)}" data-orig="${esc(r.expiry)}"></div>
+      <div class="field" style="margin-top:12px;"><label>有効期限（変更時はキー重複不可）</label><input type="date" id="in-expiry" value="${esc(r.expiry)}" data-orig="${esc(r.expiry)}"></div>
       <div class="field">
         <label>残額（${unit(r.benefit_type)}）</label>
         <div class="balance-edit">
-          <input type="text" inputmode="numeric" pattern="[0-9]*" class="in-balance" value="${Number(r.balance ?? 0)}" data-orig="${Number(r.balance ?? 0)}">
+          <input type="text" inputmode="numeric" pattern="[0-9]*" id="in-balance" value="${Number(r.balance ?? 0)}" data-orig="${Number(r.balance ?? 0)}">
           ${r.benefit_type === "枚数"
             ? `<button type="button" class="qbtn minus" data-v="1">−1枚</button>`
             : `<button type="button" class="qbtn minus" data-v="500">−500</button>
                <button type="button" class="qbtn minus" data-v="1000">−1,000</button>`}
-          <button type="button" class="qbtn zero zero-btn">使い切り</button>
+          <button type="button" class="qbtn zero" id="zero-btn">使い切り</button>
         </div>
       </div>
-      <div class="field"><label>メモ(トラン)</label><input type="text" class="in-memo" value="${esc(r.memo_tran)}" data-orig="${esc(r.memo_tran)}"></div>
+      <div class="field">
+        <label>メモ(トラン)</label>
+        <input type="text" id="in-memo" value="${esc(r.memo_tran)}" data-orig="${esc(r.memo_tran)}">
+        <div class="memo-link" id="memo-link"></div>
+      </div>
       <div class="btn-row">
-        <button class="btn primary save-btn">更新する</button>
-        <button class="btn danger del-btn" style="flex:0 0 96px;">削除</button>
+        <button class="btn primary" id="save-btn">更新する</button>
+        <button class="btn danger" id="del-btn" style="flex:0 0 96px;">削除</button>
       </div>
     </div>`;
-  });
   app.innerHTML = html;
-  $("#back").onclick = () => { if(confirmLeaveDetail()) renderList(); };
+  $("#back").onclick = () => { if(confirmLeaveDetail()) (lastList ?? renderList)(); };
   setFab(null);
+
+  // 口座タブ切替（未保存の変更があれば確認）
+  app.querySelectorAll(".acct-tab").forEach(t => t.onclick = () => {
+    if(t.dataset.acct === r.account) return;
+    if(detailHasChanges() && !confirm("変更内容が保存されていません。\n保存せずに口座を切り替えますか？")) return;
+    renderDetail(key, t.dataset.acct);
+  });
 
   app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async e => {
     await navigator.clipboard.writeText(e.target.dataset.copy); toast("コピーしました");
@@ -545,62 +730,70 @@ function renderDetail(key){
     pw.textContent = on ? "••••••" : pw.dataset.pw;
     e.target.textContent = on ? "表示" : "隠す";
   });
-  app.querySelectorAll(".card").forEach(card => {
-    const r = rows[Number(card.dataset.i)];
-    // 残額入力：フォーカス時はカーソルを右端に置く
-    const balInp = card.querySelector(".in-balance");
-    balInp.addEventListener("focus", () => {
-      requestAnimationFrame(() => {
-        const len = balInp.value.length;
-        try{ balInp.setSelectionRange(len, len); }catch(e){}
-      });
+
+  // 残額入力：フォーカス時はカーソルを右端に置く
+  const balInp = $("#in-balance");
+  balInp.addEventListener("focus", () => {
+    requestAnimationFrame(() => {
+      const len = balInp.value.length;
+      try{ balInp.setSelectionRange(len, len); }catch(e){}
     });
-    // 受取済トグル（切り替えた時点で即保存）
-    card.querySelector(".in-received").onchange = async e => {
-      const checked = e.target.checked;
-      const { error } = await sb.from("yutai_balance")
-        .update({ received:checked, updated_at:new Date().toISOString() })
-        .match({ code:r.code, account:r.account, expiry:r.expiry });
-      if(error){ toast("更新に失敗しました"); e.target.checked = !checked; console.error(error); return; }
-      await loadAll();
-      toast(checked ? "受取済にしました" : "未受取にしました");
-    };
-    // クイック減算・使い切り（値の変更のみ。「更新する」で確定）
-    card.querySelectorAll(".qbtn.minus").forEach(b => b.onclick = () => {
-      const inp = card.querySelector(".in-balance");
-      inp.value = Math.max(0, Number(inp.value || 0) - Number(b.dataset.v));
-    });
-    card.querySelector(".zero-btn").onclick = () => { card.querySelector(".in-balance").value = 0; };
-    // 更新（有効期限・残額・メモ(トラン)を保存。期限変更時はキー重複をチェック）
-    card.querySelector(".save-btn").onclick = async () => {
-      const newExpiry = card.querySelector(".in-expiry").value;
-      if(!newExpiry){ toast("有効期限を入力してください"); return; }
-      if(newExpiry !== r.expiry &&
-         balances.some(x => x.code === r.code && x.account === r.account && x.expiry === newExpiry)){
-        toast(`期限${fmtDate(newExpiry)}の同じ優待が既に存在するため変更できません`); return;
-      }
-      const upd = {
-        expiry:newExpiry,
-        balance:Number(card.querySelector(".in-balance").value || 0),
-        memo_tran:card.querySelector(".in-memo").value,
-        updated_at:new Date().toISOString()
-      };
-      const { error } = await sb.from("yutai_balance").update(upd)
-        .match({ code:r.code, account:r.account, expiry:r.expiry });
-      if(error){ toast("更新に失敗しました"); console.error(error); return; }
-      await loadAll(); toast("更新しました");
-      renderDetail(`${r.code}__${newExpiry}`);
-    };
-    card.querySelector(".del-btn").onclick = async () => {
-      if(!confirm(`${r.name}（${r.account}）の残額データを削除します。よろしいですか？`)) return;
-      const { error } = await sb.from("yutai_balance").delete()
-        .match({ code:r.code, account:r.account, expiry:r.expiry });
-      if(error){ toast("削除に失敗しました"); console.error(error); return; }
-      await loadAll(); toast("削除しました");
-      const left = balances.filter(x => x.code === code && x.expiry === expiry);
-      left.length ? renderDetail(key) : renderList();
-    };
   });
+
+  // メモ(トラン)にURLが含まれる場合はリンクを表示（入力に追従）
+  const memoInp = $("#in-memo");
+  const memoLink = $("#memo-link");
+  function syncMemoLink(){
+    const m = (memoInp.value.match(/https?:\/\/[^\s<>"']+/) || [])[0];
+    memoLink.innerHTML = m ? `<a href="${esc(m)}" target="_blank" rel="noopener">↗ メモ内のリンクを開く</a>` : "";
+  }
+  memoInp.addEventListener("input", syncMemoLink);
+  syncMemoLink();
+
+  // 受取済トグル（切り替えた時点で即保存）
+  $("#in-received").onchange = async e => {
+    const checked = e.target.checked;
+    const { error } = await sb.from("yutai_balance")
+      .update({ received:checked, updated_at:new Date().toISOString() })
+      .match({ code:r.code, account:r.account, expiry:r.expiry });
+    if(error){ toast("更新に失敗しました"); e.target.checked = !checked; console.error(error); return; }
+    await loadAll();
+    toast(checked ? "受取済にしました" : "未受取にしました");
+  };
+  // クイック減算・使い切り（値の変更のみ。「更新する」で確定）
+  app.querySelectorAll(".qbtn.minus").forEach(b => b.onclick = () => {
+    balInp.value = Math.max(0, Number(balInp.value || 0) - Number(b.dataset.v));
+  });
+  $("#zero-btn").onclick = () => { balInp.value = 0; };
+  // 更新（有効期限・残額・メモ(トラン)を保存。期限変更時はキー重複をチェック）
+  $("#save-btn").onclick = async () => {
+    const newExpiry = $("#in-expiry").value;
+    if(!newExpiry){ toast("有効期限を入力してください"); return; }
+    if(newExpiry !== r.expiry &&
+       balances.some(x => x.code === r.code && x.account === r.account && x.expiry === newExpiry)){
+      toast(`期限${fmtDate(newExpiry)}の同じ優待が既に存在するため変更できません`); return;
+    }
+    const upd = {
+      expiry:newExpiry,
+      balance:Number(balInp.value || 0),
+      memo_tran:memoInp.value,
+      updated_at:new Date().toISOString()
+    };
+    const { error } = await sb.from("yutai_balance").update(upd)
+      .match({ code:r.code, account:r.account, expiry:r.expiry });
+    if(error){ toast("更新に失敗しました"); console.error(error); return; }
+    await loadAll(); toast("更新しました");
+    renderDetail(`${r.code}__${newExpiry}`, r.account);
+  };
+  $("#del-btn").onclick = async () => {
+    if(!confirm(`${r.name}（${r.account}）の残額データを削除します。よろしいですか？`)) return;
+    const { error } = await sb.from("yutai_balance").delete()
+      .match({ code:r.code, account:r.account, expiry:r.expiry });
+    if(error){ toast("削除に失敗しました"); console.error(error); return; }
+    await loadAll(); toast("削除しました");
+    const left = balances.filter(x => x.code === code && x.expiry === expiry);
+    left.length ? renderDetail(key) : (lastList ?? renderList)();
+  };
 }
 
 /* ---------------- 画面：残額データの追加 ---------------- */
@@ -723,20 +916,36 @@ function renderMasterList(){
   }else if(list.length === 0){
     html += `<div class="empty">この条件に合う銘柄がありません。<br>検索条件や絞り込みを見直してください。</div>`;
   }else{
+    // 銘柄単位に集約し、証券口座別をサブレコードとして表示
+    const gmap = new Map();
     for(const m of list){
-      const kai = Number(m.times_per_year) === 2
-        ? `${m.month1}月・${m.month2}月`
-        : `${m.month1}月`;
+      if(!gmap.has(m.code)) gmap.set(m.code, { code:m.code, rows:[] });
+      gmap.get(m.code).rows.push(m);
+    }
+    for(const g of gmap.values()){
+      const first = g.rows[0];
+      const kai = Number(first.times_per_year) === 2
+        ? `${first.month1}月・${first.month2}月`
+        : `${first.month1}月`;
+      const gTotal = g.rows.reduce((s,m)=> s + yearAmt(m), 0);
       html += `
-      <div class="ticket" data-pk="${esc(m.code)}__${esc(m.account)}">
+      <div class="ticket" data-code="${esc(g.code)}">
         <div class="t-main">
-          <div class="t-code">${esc(m.code)}</div>
-          <div class="t-name">${esc(m.name)}</div>
-          <div class="t-meta">${acctChip(m.account)} <span class="chip form">${esc(m.format)}</span> <span class="chip form">${esc(m.benefit_type)}</span> <span class="chip days-ok">優待月 ${kai}</span></div>
+          <div class="t-code">${esc(g.code)}</div>
+          <div class="t-name">${esc(first.name)}</div>
+          <div class="t-meta"><span class="chip form">${esc(first.format)}</span> <span class="chip form">${esc(first.benefit_type)}</span> <span class="chip days-ok">優待月 ${kai}</span></div>
+          <div class="t-sub">
+            ${[...g.rows].sort((a,b)=>a.account.localeCompare(b.account)).map(m => `
+            <div class="t-subrow">
+              <span class="chip acct ${esc(m.account)}">${esc(m.account)}</span>
+              <span class="t-subbal">${fmtNum(yearAmt(m))}<small>${unit(m.benefit_type)}/年</small></span>
+              <span style="font-size:10px; color:var(--muted);">年${esc(m.times_per_year)}回</span>
+            </div>`).join("")}
+          </div>
         </div>
         <div class="t-stub">
-          <div class="t-balance" style="font-size:15px;">${fmtNum(yearAmt(m))}<small>${unit(m.benefit_type)}/年</small></div>
-          <div class="t-exp">年${esc(m.times_per_year)}回</div>
+          <div class="t-balance" style="font-size:15px;">${fmtNum(gTotal)}<small>${unit(first.benefit_type)}/年</small></div>
+          <div class="t-exp">年間合計</div>
         </div>
       </div>`;
     }
@@ -753,8 +962,10 @@ function renderMasterList(){
   $("#mf-acct").onchange = e => { masterAccount = e.target.value; renderMasterList(); };
   $("#mf-sort").onchange = e => { masterSort = e.target.value; renderMasterList(); };
   app.querySelectorAll(".ticket").forEach(el => el.onclick = () => {
-    const [code, account] = el.dataset.pk.split("__");
-    renderMasterForm(masters.find(m => m.code === code && m.account === account));
+    const first = masters
+      .filter(m => m.code === el.dataset.code)
+      .sort((a,b)=> a.account.localeCompare(b.account))[0];
+    if(first) renderMasterForm(first);
   });
   setFab("＋ 銘柄を登録", () => renderMasterForm(null));
 }
@@ -779,9 +990,14 @@ function renderMasterForm(m, isCopy = false){
         <div class="field"><label>優待額</label><input type="number" inputmode="numeric" id="m-amount${n}" value="${amt ?? ""}"></div>
       </div>
     </div>`;
+  const siblings = isEdit ? masters.filter(x => x.code === m.code).sort((a,b)=> a.account.localeCompare(b.account)) : [];
   app.innerHTML = `
   <button class="back" id="back">‹ マスタ一覧に戻る</button>
   <h2>${isEdit ? "銘柄マスタの編集" : isCopy ? "銘柄マスタの登録（コピー）" : "銘柄マスタの登録"}</h2>
+  ${siblings.length > 1 ? `
+  <div class="acct-tabs">
+    ${siblings.map(x => `<button type="button" class="acct-tab ${x.account === m.account ? "on" : ""}" data-acct="${esc(x.account)}">${esc(x.account)}</button>`).join("")}
+  </div>` : ""}
   <div class="card">
     <div id="m-err"></div>
     ${isCopy ? `<p class="sub" style="margin-bottom:10px;">「${esc(m.name)}（${esc(m.account)}）」の内容を引き継いでいます。コードまたは証券口座を変えて登録してください。</p>` : ""}
@@ -818,6 +1034,11 @@ function renderMasterForm(m, isCopy = false){
     </div>` : ""}
   </div>`;
   $("#back").onclick = renderMasterList;
+  app.querySelectorAll(".acct-tab").forEach(t => t.onclick = () => {
+    if(t.dataset.acct === m.account) return;
+    const next = siblings.find(x => x.account === t.dataset.acct);
+    if(next) renderMasterForm(next);
+  });
 
   let times = Number(v.times_per_year) === 2 ? 2 : 1;
   function syncTimes(){
@@ -921,9 +1142,11 @@ function setFab(label, handler){
 }
 function setNav(active){
   $("#nav-list").classList.toggle("active", active === "list");
+  $("#nav-bycode").classList.toggle("active", active === "bycode");
   $("#nav-master").classList.toggle("active", active === "master");
 }
 $("#nav-list").onclick = () => { if(confirmLeaveDetail()) renderList(); };
+$("#nav-bycode").onclick = () => { if(confirmLeaveDetail()) renderByCode(); };
 $("#nav-master").onclick = () => { if(confirmLeaveDetail()) renderMasterList(); };
 
 /* ---------------- 起動 ---------------- */
