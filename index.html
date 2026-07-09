@@ -79,6 +79,12 @@ nav button.active{color:#fff; border-bottom-color:var(--gold);}
 /* メモ内リンク */
 .memo-link{margin-top:4px; font-size:12.5px; font-weight:700;}
 .memo-link a{color:var(--green);}
+
+/* 残額ログ関連 */
+.pending-note{margin-top:5px; font-size:12px; font-weight:600; color:var(--muted); line-height:1.5;}
+.diff-plus{color:var(--green) !important;}
+.diff-minus{color:var(--red) !important;}
+.log-memo{font-size:11.5px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 main{max-width:640px; margin:0 auto; padding:16px 14px;}
 h2{font-size:16px; font-weight:800; margin:4px 2px 12px; letter-spacing:.04em;}
 .sub{font-size:12px; color:var(--muted);}
@@ -246,8 +252,9 @@ input:disabled{background:#EEF1ED; color:#7B8781;}
 <header>
   <div class="hd-title">優待手帳 <small>KABUNUSHI YUTAI LEDGER</small></div>
   <nav>
-    <button id="nav-list" class="active">優待残高(日付別)</button>
-    <button id="nav-bycode">優待残高(銘柄別)</button>
+    <button id="nav-list" class="active">残高(日付別)</button>
+    <button id="nav-bycode">残高(銘柄別)</button>
+    <button id="nav-log">ログ</button>
     <button id="nav-master">銘柄マスタ</button>
   </nav>
 </header>
@@ -268,6 +275,7 @@ const TYPES    = ["金額","枚数"];
 let sb = null;
 let masters = [];   // yutai_master
 let balances = [];  // yutai_balance
+let logs = [];      // yutai_log（残額ログ。null=テーブル未作成）
 let showUsed = false;
 let showUnrecvOnly = false; // 受取なしのみ表示（受取済の更新漏れ確認用）
 let noticeDismissed = false; // 期限1か月前通知を閉じたか（セッション内で保持）
@@ -368,6 +376,12 @@ async function loadAll(){
   if(m.error) throw m.error;
   if(b.error) throw b.error;
   masters = m.data; balances = b.data;
+  // 残額ログ（テーブル未作成でも他画面は動くよう、エラーは握りつぶして印だけ残す）
+  try{
+    const l = await sb.from("yutai_log").select("*");
+    if(l.error){ logs = null; console.warn(l.error); }
+    else logs = l.data;
+  }catch(e){ logs = null; console.warn(e); }
 }
 
 /* ---------------- 優待の自動登録 ----------------
@@ -654,6 +668,39 @@ function openExpiryModal(g, subs){
   document.body.appendChild(bg);
 }
 
+/* ---------------- 画面：残額ログ ---------------- */
+function renderLog(){
+  view = { name:"log" };
+  setNav("log");
+  let html = `<h2>残額ログ</h2>`;
+  if(logs === null){
+    html += `<div class="empty">ログ用のテーブルが未作成です。<br>SupabaseのSQL Editorで update-v7.sql を実行してください。</div>`;
+  }else if(logs.length === 0){
+    html += `<div class="empty">まだログがありません。<br>残額詳細の「✎ 編集」から残額を変更して更新すると、<br>消費・追加の履歴がここに記録されます。</div>`;
+  }else{
+    const list = [...logs].sort((a,b)=>
+      String(b.used_on).localeCompare(String(a.used_on)) || a.code.localeCompare(b.code) || String(b.created_at).localeCompare(String(a.created_at)));
+    for(const L of list){
+      const d = Number(L.amount ?? 0);
+      html += `
+      <div class="ticket" style="cursor:default;">
+        <div class="t-main">
+          <div class="t-code">${esc(L.code)}　<span class="chip acct ${esc(L.account)}" style="font-size:9px; padding:0 6px;">${esc(L.account)}</span></div>
+          <div class="t-name">${esc(L.name)}</div>
+          ${L.memo ? `<div class="log-memo">${esc(L.memo)}</div>` : ""}
+        </div>
+        <div class="t-stub">
+          <div class="t-balance ${d > 0 ? "diff-plus" : "diff-minus"}" style="font-size:16px;">${d > 0 ? "+" : "−"}${fmtNum(Math.abs(d))}<small>${unit(L.benefit_type)}</small></div>
+          <div class="t-exp">使用日 ${fmtDate(L.used_on)}</div>
+        </div>
+      </div>`;
+    }
+  }
+  html += `<div style="height:60px;"></div>`;
+  app.innerHTML = html;
+  setFab(null);
+}
+
 /* ---------------- 画面：残額詳細（証券口座タブ切替） ---------------- */
 function renderDetail(key, activeAcct){
   const [code, expiry] = key.split("__");
@@ -692,13 +739,10 @@ function renderDetail(key, activeAcct){
       <div class="field">
         <label>残額（${unit(r.benefit_type)}）</label>
         <div class="balance-edit">
-          <input type="text" inputmode="numeric" pattern="[0-9]*" id="in-balance" value="${Number(r.balance ?? 0)}" data-orig="${Number(r.balance ?? 0)}">
-          ${r.benefit_type === "枚数"
-            ? `<button type="button" class="qbtn minus" data-v="1">−1枚</button>`
-            : `<button type="button" class="qbtn minus" data-v="500">−500</button>
-               <button type="button" class="qbtn minus" data-v="1000">−1,000</button>`}
-          <button type="button" class="qbtn zero" id="zero-btn">使い切り</button>
+          <input type="text" inputmode="numeric" id="in-balance" value="${Number(r.balance ?? 0)}" data-orig="${Number(r.balance ?? 0)}" readonly>
+          <button type="button" class="qbtn" id="bal-edit-btn">✎ 編集</button>
         </div>
+        <div class="pending-note" id="pending-note"></div>
       </div>
       <div class="field">
         <label>メモ(トラン)</label>
@@ -731,14 +775,80 @@ function renderDetail(key, activeAcct){
     e.target.textContent = on ? "表示" : "隠す";
   });
 
-  // 残額入力：フォーカス時はカーソルを右端に置く
+  // 残額の編集（小画面）：任意編集・クイック減算・使用日・メモを入力し、差分をログとして保留する
   const balInp = $("#in-balance");
-  balInp.addEventListener("focus", () => {
-    requestAnimationFrame(() => {
-      const len = balInp.value.length;
-      try{ balInp.setSelectionRange(len, len); }catch(e){}
+  const pendingNote = $("#pending-note");
+  let pending = null;  // {newBal, diff, usedOn, memo} 「更新する」押下時に初めてコミット
+  const origBal = Number(r.balance ?? 0);
+  function syncPendingNote(){
+    if(!pending){ pendingNote.innerHTML = ""; return; }
+    const sign = pending.diff > 0 ? "+" : "−";
+    pendingNote.innerHTML =
+      `変更 <b class="${pending.diff > 0 ? "diff-plus" : "diff-minus"}">${sign}${fmtNum(Math.abs(pending.diff))}${unit(r.benefit_type)}</b>` +
+      `（使用日 ${fmtDate(pending.usedOn)}${pending.memo ? "・" + esc(pending.memo) : ""}）を「更新する」でログに記録します`;
+  }
+  $("#bal-edit-btn").onclick = () => {
+    const bg = document.createElement("div");
+    bg.className = "modal-bg";
+    const u = unit(r.benefit_type);
+    bg.innerHTML = `
+      <div class="modal">
+        <h3>残額の編集</h3>
+        <div class="sub">現在の残額：${fmtNum(origBal)}${u}（差分がログとして記録されます）</div>
+        <div class="field">
+          <label>新しい残額（${u}）</label>
+          <div class="balance-edit">
+            <input type="text" inputmode="numeric" id="bm-bal" value="${pending ? pending.newBal : origBal}">
+            ${r.benefit_type === "枚数"
+              ? `<button type="button" class="qbtn bm-minus" data-v="1">−1枚</button>`
+              : `<button type="button" class="qbtn bm-minus" data-v="500">−500</button>
+                 <button type="button" class="qbtn bm-minus" data-v="1000">−1,000</button>`}
+            <button type="button" class="qbtn zero" id="bm-zero">使い切り</button>
+          </div>
+          <div class="pending-note" id="bm-diff"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>使用日</label><input type="date" id="bm-date" value="${esc(pending?.usedOn ?? todayISO())}"></div>
+          <div class="field"><label>メモ（店舗名など）</label><input type="text" id="bm-memo" value="${esc(pending?.memo ?? "")}"></div>
+        </div>
+        <div class="btn-row" style="margin-top:4px;">
+          <button class="btn primary" id="bm-apply">反映する</button>
+          <button class="btn ghost" id="bm-cancel" style="flex:0 0 110px;">キャンセル</button>
+        </div>
+      </div>`;
+    const bmBal = bg.querySelector("#bm-bal");
+    const bmDiff = bg.querySelector("#bm-diff");
+    function syncDiff(){
+      const d = Number(bmBal.value || 0) - origBal;
+      bmDiff.innerHTML = d === 0
+        ? `<span style="color:var(--muted);">変更なし</span>`
+        : `差分 <b class="${d > 0 ? "diff-plus" : "diff-minus"}">${d > 0 ? "+" : "−"}${fmtNum(Math.abs(d))}${u}</b>`;
+    }
+    bmBal.addEventListener("input", syncDiff);
+    bmBal.addEventListener("focus", () => requestAnimationFrame(() => {
+      const len = bmBal.value.length;
+      try{ bmBal.setSelectionRange(len, len); }catch(e){}
+    }));
+    bg.querySelectorAll(".bm-minus").forEach(b => b.onclick = () => {
+      bmBal.value = Math.max(0, Number(bmBal.value || 0) - Number(b.dataset.v));
+      syncDiff();
     });
-  });
+    bg.querySelector("#bm-zero").onclick = () => { bmBal.value = 0; syncDiff(); };
+    bg.querySelector("#bm-cancel").onclick = () => bg.remove();
+    bg.onclick = e => { if(e.target === bg) bg.remove(); };
+    bg.querySelector("#bm-apply").onclick = () => {
+      const newBal = Math.max(0, Number(bmBal.value || 0));
+      const d = newBal - origBal;
+      const usedOn = bg.querySelector("#bm-date").value;
+      if(d !== 0 && !usedOn){ alert("使用日を入力してください"); return; }
+      pending = d === 0 ? null : { newBal, diff:d, usedOn, memo:bg.querySelector("#bm-memo").value };
+      balInp.value = newBal;
+      syncPendingNote();
+      bg.remove();
+    };
+    document.body.appendChild(bg);
+    syncDiff();
+  };
 
   // メモ(トラン)にURLが含まれる場合はリンクを表示（入力に追従）
   const memoInp = $("#in-memo");
@@ -760,12 +870,7 @@ function renderDetail(key, activeAcct){
     await loadAll();
     toast(checked ? "受取済にしました" : "未受取にしました");
   };
-  // クイック減算・使い切り（値の変更のみ。「更新する」で確定）
-  app.querySelectorAll(".qbtn.minus").forEach(b => b.onclick = () => {
-    balInp.value = Math.max(0, Number(balInp.value || 0) - Number(b.dataset.v));
-  });
-  $("#zero-btn").onclick = () => { balInp.value = 0; };
-  // 更新（有効期限・残額・メモ(トラン)を保存。期限変更時はキー重複をチェック）
+  // 更新（有効期限・残額・メモ(トラン)を保存し、保留中の残額ログをコミット。押さずに戻ると破棄）
   $("#save-btn").onclick = async () => {
     const newExpiry = $("#in-expiry").value;
     if(!newExpiry){ toast("有効期限を入力してください"); return; }
@@ -782,6 +887,14 @@ function renderDetail(key, activeAcct){
     const { error } = await sb.from("yutai_balance").update(upd)
       .match({ code:r.code, account:r.account, expiry:r.expiry });
     if(error){ toast("更新に失敗しました"); console.error(error); return; }
+    if(pending && pending.diff !== 0){
+      const logRow = {
+        code:r.code, account:r.account, name:r.name, benefit_type:r.benefit_type,
+        used_on:pending.usedOn, memo:pending.memo || "", amount:pending.diff
+      };
+      const lg = await sb.from("yutai_log").insert(logRow);
+      if(lg.error){ console.error(lg.error); toast("残額は更新しましたがログの記録に失敗しました（update-v7.sql実行済みかご確認ください）"); }
+    }
     await loadAll(); toast("更新しました");
     renderDetail(`${r.code}__${newExpiry}`, r.account);
   };
@@ -1143,10 +1256,12 @@ function setFab(label, handler){
 function setNav(active){
   $("#nav-list").classList.toggle("active", active === "list");
   $("#nav-bycode").classList.toggle("active", active === "bycode");
+  $("#nav-log").classList.toggle("active", active === "log");
   $("#nav-master").classList.toggle("active", active === "master");
 }
 $("#nav-list").onclick = () => { if(confirmLeaveDetail()) renderList(); };
 $("#nav-bycode").onclick = () => { if(confirmLeaveDetail()) renderByCode(); };
+$("#nav-log").onclick = () => { if(confirmLeaveDetail()) renderLog(); };
 $("#nav-master").onclick = () => { if(confirmLeaveDetail()) renderMasterList(); };
 
 /* ---------------- 起動 ---------------- */
